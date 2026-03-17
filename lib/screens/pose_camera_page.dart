@@ -52,7 +52,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   bool _showToast = false;
   Timer? _toastTimer;
 
-  // Exit Hold State
   int _exitCountdown = 4;
   Timer? _exitTimer;
 
@@ -169,7 +168,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   }
 
   void _triggerToast(String message, int state) {
-    _toastTimer?.cancel();
+    _toastTimer?.cancel(); // This enforces the "Trample" logic
     if (!mounted) return;
     setState(() {
       _feedbackMessage = message;
@@ -181,7 +180,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     });
   }
 
-  // --- EXIT LOGIC (DEADMAN'S SWITCH) ---
   void _handleTapDown(TapDownDetails details) {
     _exitCountdown = 4;
     _triggerToast("Hold for $_exitCountdown seconds to end session", -1);
@@ -205,7 +203,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     }
   }
 
-  // --- CAMERA ---
   Future<void> _initCamera() async {
     try {
       final camera = widget.cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.front, orElse: () => widget.cameras.first);
@@ -300,13 +297,9 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   }
 
   Widget _buildTransitionOverlay() {
-    if (_currentPhase == SessionPhase.active || _currentPhase == SessionPhase.finished) {
-      return const SizedBox.shrink();
-    }
+    if (_currentPhase == SessionPhase.active || _currentPhase == SessionPhase.finished) return const SizedBox.shrink();
     
     final isPrep = _currentPhase == SessionPhase.prep;
-    
-    // Look ahead logic: If resting, the "Next" exercise is index + 1
     String nextExerciseName = "";
     if (isPrep && widget.routine.isNotEmpty) {
       nextExerciseName = widget.routine[_currentExerciseIndex].name;
@@ -320,20 +313,11 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              isPrep ? 'PREPARING' : 'REST', 
-              style: const TextStyle(color: mintGreen, fontSize: 18, letterSpacing: 4.0, fontWeight: FontWeight.bold)
-            ),
+            Text(isPrep ? 'PREPARING' : 'REST', style: const TextStyle(color: mintGreen, fontSize: 18, letterSpacing: 4.0, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
-            Text(
-              _countdownSeconds.toString(), 
-              style: const TextStyle(color: Colors.white, fontSize: 120, fontWeight: FontWeight.bold, height: 1.0)
-            ),
+            Text(_countdownSeconds.toString(), style: const TextStyle(color: Colors.white, fontSize: 120, fontWeight: FontWeight.bold, height: 1.0)),
             const SizedBox(height: 24),
-            Text(
-              'NEXT: ${nextExerciseName.toUpperCase()}', 
-              style: const TextStyle(color: Colors.grey, fontSize: 16, letterSpacing: 1.5)
-            ),
+            Text('NEXT: ${nextExerciseName.toUpperCase()}', style: const TextStyle(color: Colors.grey, fontSize: 16, letterSpacing: 1.5)),
           ],
         ),
       ),
@@ -360,7 +344,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // 1 & 2. Fused Camera and Overlay (Fixes the Y-Axis Misalignment mathematically)
+            // 1. Camera & Skeleton Layer
             Transform.scale(
               scale: scale,
               child: Center(
@@ -390,70 +374,72 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
               ),
             ),
 
-            // 3. Prep / Rest Overlay
+            // 2. Prep / Rest Overlay
             _buildTransitionOverlay(),
 
-            // 4. UI: Top Exercise Title Panel
-            if (_currentPhase == SessionPhase.active && currentExercise != null)
-              SafeArea(
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: Container(
-                    margin: const EdgeInsets.only(top: 80), // Positioned below the toast notification area
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(20)),
-                    child: Text(
-                      currentExercise.name.toUpperCase(),
-                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2.0),
-                    ),
-                  ),
-                ),
-              ),
-
-            // 5. UI: Auto-hiding Toast Notification
+            // 3. UI: Top Stack (Exercise Name -> Notification Toast)
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.only(top: 16.0),
                 child: Align(
                   alignment: Alignment.topCenter,
-                  child: AnimatedOpacity(
-                    opacity: _showToast ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 300),
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 20),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: darkSlate.withOpacity(0.9), borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.transparent), width: 2),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _formState == -1 ? Icons.warning_amber_rounded : (_formState == 1 ? Icons.check_circle : Icons.info_outline),
-                            color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.white),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min, // Hugs the contents tightly
+                    children: [
+                      // Exercise Name Banner (Always top)
+                      if (_currentPhase == SessionPhase.active && currentExercise != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                          decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(20)),
+                          child: Text(
+                            currentExercise.name.toUpperCase(),
+                            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2.0),
                           ),
-                          const SizedBox(width: 12),
-                          Flexible(child: Text(_feedbackMessage, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                        ],
+                        ),
+                      
+                      const SizedBox(height: 12),
+                      
+                      // Auto-hiding Toast Notification (Right beneath the banner)
+                      AnimatedOpacity(
+                        opacity: _showToast ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 300),
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 20),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: darkSlate.withOpacity(0.9), borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.transparent), width: 2),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _formState == -1 ? Icons.warning_amber_rounded : (_formState == 1 ? Icons.check_circle : Icons.info_outline),
+                                color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.white),
+                              ),
+                              const SizedBox(width: 12),
+                              Flexible(child: Text(_feedbackMessage, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
             ),
 
-            // 6. UI: Bottom-Left Massive Transparent Rep Counter
+            // 4. UI: Bottom-Left Massive Rep Counter
             if (_currentPhase == SessionPhase.active && currentExercise != null)
               Positioned(
                 bottom: 40,
                 left: 20,
                 child: Container(
-                  width: 180, // Increased size
+                  width: 180, 
                   height: 180,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.black.withOpacity(0.3), // More transparent
+                    color: Colors.black.withOpacity(0.3), 
                     border: Border.all(color: Colors.grey.withOpacity(0.3), width: 4),
                   ),
                   child: Column(
@@ -496,7 +482,6 @@ class PosePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Increased node sizes
     final glowPaint = Paint()..color = Colors.white.withOpacity(0.6)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
     final solidPointPaint = Paint()..color = Colors.white..style = PaintingStyle.fill;
 
@@ -506,23 +491,29 @@ class PosePainter extends CustomPainter {
 
     final linePaint = Paint()..color = edgeColor..strokeWidth = 8..strokeCap = StrokeCap.round..style = PaintingStyle.stroke;
 
+    // --- MATHEMATICAL FIX FOR THE ALIGNMENT BUG ---
+    // If the device is in portrait mode, the raw image width and height from the camera are actually swapped.
+    final bool isPortrait = rotation == InputImageRotation.rotation90deg || rotation == InputImageRotation.rotation270deg;
+    final double absoluteImageWidth = isPortrait ? imageSize.height : imageSize.width;
+    final double absoluteImageHeight = isPortrait ? imageSize.width : imageSize.height;
+
     for (final pose in poses) {
       final landmarks = pose.landmarks;
 
       void drawPoint(PoseLandmarkType type) {
         final landmark = landmarks[type];
         if (landmark == null || landmark.likelihood < 0.6) return;
-        final point = _mapPoint(Offset(landmark.x, landmark.y), size);
-        canvas.drawCircle(point, 18, glowPaint); // Radius increased
-        canvas.drawCircle(point, 8, solidPointPaint); // Radius increased
+        final point = _mapPoint(Offset(landmark.x, landmark.y), size, absoluteImageWidth, absoluteImageHeight);
+        canvas.drawCircle(point, 18, glowPaint); 
+        canvas.drawCircle(point, 8, solidPointPaint); 
       }
 
       void drawLine(PoseLandmarkType a, PoseLandmarkType b) {
         final p1 = landmarks[a];
         final p2 = landmarks[b];
         if (p1 == null || p2 == null || p1.likelihood < 0.6 || p2.likelihood < 0.6) return;
-        final start = _mapPoint(Offset(p1.x, p1.y), size);
-        final end = _mapPoint(Offset(p2.x, p2.y), size);
+        final start = _mapPoint(Offset(p1.x, p1.y), size, absoluteImageWidth, absoluteImageHeight);
+        final end = _mapPoint(Offset(p2.x, p2.y), size, absoluteImageWidth, absoluteImageHeight);
         canvas.drawLine(start, end, linePaint);
       }
 
@@ -555,9 +546,10 @@ class PosePainter extends CustomPainter {
     }
   }
 
-  Offset _mapPoint(Offset point, Size canvasSize) {
-    double mappedX = point.dx / imageSize.width * canvasSize.width;
-    double mappedY = point.dy / imageSize.height * canvasSize.height;
+  Offset _mapPoint(Offset point, Size canvasSize, double imgWidth, double imgHeight) {
+    // We now divide the points by the corrected, portrait-adjusted width and height
+    double mappedX = point.dx / imgWidth * canvasSize.width;
+    double mappedY = point.dy / imgHeight * canvasSize.height;
     if (isFrontCamera) mappedX = canvasSize.width - mappedX;
     return Offset(mappedX, mappedY);
   }
