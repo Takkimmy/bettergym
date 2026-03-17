@@ -5,25 +5,74 @@ import 'package:camera/camera.dart';
 import '../main.dart'; // Inherit global colors
 import 'login_page.dart';
 
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   final List<CameraDescription> cameras;
   
   const ProfilePage({super.key, required this.cameras});
 
-  Future<void> _logout(BuildContext context) async {
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  String _username = "Loading...";
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsername();
+  }
+
+  Future<void> _loadUsername() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('logged_in');
-    await prefs.remove('username');
+    setState(() {
+      _username = prefs.getString('username') ?? "User";
+    });
+  }
 
-    if (!context.mounted) return;
-
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(
-        builder: (_) => LoginPage(cameras: cameras),
-      ),
-      (route) => false,
+  Future<void> _confirmLogout(BuildContext context) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          backgroundColor: darkSlate,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Confirm Logout', style: TextStyle(color: Colors.white)),
+          content: const Text('Are you sure you want to end your session?', style: TextStyle(color: Colors.grey)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('CANCEL', style: TextStyle(color: mintGreen)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: neonRed,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('LOGOUT'),
+            ),
+          ],
+        );
+      },
     );
+
+    if (confirm == true && context.mounted) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('logged_in');
+      await prefs.remove('username');
+
+      if (!context.mounted) return;
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => LoginPage(cameras: widget.cameras),
+        ),
+        (route) => false,
+      );
+    }
   }
 
   Widget _buildStatPill(String label, String value, Color color) {
@@ -43,20 +92,10 @@ class ProfilePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // In a real app, you'd fetch this from SharedPreferences or your API
-    const String username = "S"; 
-
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Athlete Profile'),
+        title: const Text('User Profile'),
         centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout, color: neonRed),
-            onPressed: () => _logout(context),
-            tooltip: 'Logout',
-          ),
-        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -77,9 +116,9 @@ class ProfilePage extends StatelessWidget {
                   child: Icon(Icons.person, size: 40, color: mintGreen),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  username,
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                Text(
+                  _username, // Dynamically loaded
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 const SizedBox(height: 24),
                 Row(
@@ -112,9 +151,7 @@ class ProfilePage extends StatelessWidget {
               title: const Text('Knee Valgus Detected', style: TextStyle(color: Colors.white)),
               subtitle: const Text('Last seen: 2 days ago during Squats', style: TextStyle(color: Colors.grey, fontSize: 12)),
               trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-              onTap: () {
-                // Show modal with detailed biomechanical breakdown
-              },
+              onTap: () {},
             ),
           ),
 
@@ -131,9 +168,23 @@ class ProfilePage extends StatelessWidget {
             ),
             icon: const Icon(Icons.download),
             label: const Text('Export Biomechanical Data (CSV)'),
-            onPressed: () {
-              // Trigger export logic
-            },
+            onPressed: () {},
+          ),
+
+          const SizedBox(height: 24),
+
+          // Massive Logout Button
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: neonRed.withOpacity(0.1),
+              foregroundColor: neonRed,
+              side: const BorderSide(color: neonRed),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            icon: const Icon(Icons.logout),
+            label: const Text('LOGOUT', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+            onPressed: () => _confirmLogout(context),
           ),
         ],
       ),

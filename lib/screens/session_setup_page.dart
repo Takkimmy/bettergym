@@ -4,13 +4,15 @@ import 'package:flutter/material.dart';
 import '../main.dart'; // Inherit global colors
 import 'pose_camera_page.dart';
 
-// --- DATA MODEL ---
+// --- DATA MODEL (Fixed with immutable IDs) ---
 class WorkoutSet {
+  final String id; // Required for dragging to work properly
   String name;
   int target;
-  bool isDuration; // true = seconds, false = reps
+  bool isDuration;
 
-  WorkoutSet({required this.name, required this.target, required this.isDuration});
+  WorkoutSet({required this.name, required this.target, required this.isDuration})
+      : id = DateTime.now().microsecondsSinceEpoch.toString(); // Generate unique ID on creation
 }
 
 class SessionSetupPage extends StatefulWidget {
@@ -22,13 +24,11 @@ class SessionSetupPage extends StatefulWidget {
 }
 
 class _SessionSetupPageState extends State<SessionSetupPage> {
-  // The available exercises you specified
   final List<String> _availableExercises = [
     'Plank', 'Pushup', 'Lunges', 'Bicep Curls', 'Squats', 
     'Pull Ups', 'Pike Pushups', 'Sit Ups', 'Dips', 'Bench Dips'
   ];
 
-  // Default starting routine
   final List<WorkoutSet> _routine = [
     WorkoutSet(name: 'Squats', target: 15, isDuration: false),
     WorkoutSet(name: 'Plank', target: 60, isDuration: true),
@@ -60,7 +60,6 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                     style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   
-                  // Exercise Dropdown
                   DropdownButtonFormField<String>(
                     dropdownColor: navyBlue,
                     value: selectedName,
@@ -77,7 +76,6 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Reps vs Duration Toggle
                   Row(
                     children: [
                       Expanded(
@@ -109,7 +107,6 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Save Button
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: mintGreen,
@@ -121,7 +118,10 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                       final target = int.tryParse(targetController.text) ?? 10;
                       setState(() {
                         if (existingSet != null && index != null) {
-                          _routine[index] = WorkoutSet(name: selectedName, target: target, isDuration: isDuration);
+                          // Keep existing ID, just update properties
+                          existingSet.name = selectedName;
+                          existingSet.target = target;
+                          existingSet.isDuration = isDuration;
                         } else {
                           _routine.add(WorkoutSet(name: selectedName, target: target, isDuration: isDuration));
                         }
@@ -150,7 +150,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Configure Session'),
+        title: const Text('Session Setup'), // Title updated
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.pop(context),
@@ -173,8 +173,9 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                     },
                     itemBuilder: (context, index) {
                       final set = _routine[index];
+                      // Use the unique immutable ID as the Key
                       return Card(
-                        key: ValueKey('${set.name}_$index'),
+                        key: Key(set.id), 
                         color: darkSlate,
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
@@ -195,7 +196,10 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                                 icon: const Icon(Icons.delete, color: neonRed, size: 20),
                                 onPressed: () => _removeExercise(index),
                               ),
-                              const Icon(Icons.drag_handle, color: Colors.grey),
+                              const ReorderableDragStartListener(
+                                index: index,
+                                child: Icon(Icons.drag_handle, color: Colors.grey),
+                              ),
                             ],
                           ),
                         ),
@@ -204,7 +208,6 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                   ),
           ),
           
-          // --- BOTTOM ACTIONS ---
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
@@ -227,15 +230,13 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                 const SizedBox(height: 12),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.greenAccent.shade400, // Vibrant green start button
+                    backgroundColor: Colors.greenAccent.shade400,
                     foregroundColor: Colors.black,
                     minimumSize: const Size.fromHeight(60),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     elevation: 8,
                   ),
                   onPressed: _routine.isEmpty ? null : () {
-                    // Pass the routine to the camera page eventually, 
-                    // but for now just launch the camera
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
