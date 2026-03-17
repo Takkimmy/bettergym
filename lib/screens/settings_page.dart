@@ -52,7 +52,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Configuration'),
+        title: const Text('Settings'),
         centerTitle: false,
       ),
       body: ListView(

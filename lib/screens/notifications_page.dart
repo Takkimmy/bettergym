@@ -132,7 +132,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Alerts & PRA'),
+        title: const Text('Notifications'),
         centerTitle: false,
         actions: [
           if (_notifications.isNotEmpty)
