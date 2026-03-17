@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:camera/camera.dart';
@@ -7,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+
+import '../main.dart'; // Inherit global colors
 
 class PoseCameraPage extends StatefulWidget {
   const PoseCameraPage({super.key, required this.cameras});
@@ -17,8 +18,7 @@ class PoseCameraPage extends StatefulWidget {
   State<PoseCameraPage> createState() => _PoseCameraPageState();
 }
 
-class _PoseCameraPageState extends State<PoseCameraPage>
-    with WidgetsBindingObserver {
+class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObserver {
   CameraController? _cameraController;
   late final PoseDetector _poseDetector;
 
@@ -26,32 +26,54 @@ class _PoseCameraPageState extends State<PoseCameraPage>
   bool _isProcessing = false;
   bool _isFrontCamera = false;
 
-  String _status = 'Initializing...';
-
   InputImageRotation _rotation = InputImageRotation.rotation0deg;
-
-  final ValueNotifier<PoseOverlayData?> _overlayNotifier =
-      ValueNotifier<PoseOverlayData?>(null);
-
+  final ValueNotifier<PoseOverlayData?> _overlayNotifier = ValueNotifier<PoseOverlayData?>(null);
   DateTime _lastProcessed = DateTime.fromMillisecondsSinceEpoch(0);
+  static const int _processIntervalMs = 30; // ~30fps processing
 
-  // Increase this if preview still feels laggy.
-  // 100 ms = about 10 pose detections per second.
-  static const int _processIntervalMs = 30;
+  // --- HUD STATE VARIABLES ---
+  final String _currentExercise = "Squats";
+  int _repsRemaining = 15;
+  
+  // 0 = Neutral (Gray), 1 = Correct (Green), -1 = Faulty (Red)
+  int _formState = 0; 
+  String _feedbackMessage = "Position yourself in frame.";
+  bool _showToast = true;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-
     _poseDetector = PoseDetector(
       options: PoseDetectorOptions(
         mode: PoseDetectionMode.stream,
         model: PoseDetectionModel.base,
       ),
     );
-
     _initCamera();
+
+    // Mocking real-time WebSocket feedback for testing the UI
+    _simulateServerFeedback();
+  }
+
+  // --- MOCK SERVER WEBSOCKET FEEDBACK ---
+  void _simulateServerFeedback() async {
+    await Future.delayed(const Duration(seconds: 4));
+    if (!mounted) return;
+    setState(() {
+      _formState = -1;
+      _feedbackMessage = "Knees caving in! Push them outward.";
+      _showToast = true;
+    });
+
+    await Future.delayed(const Duration(seconds: 3));
+    if (!mounted) return;
+    setState(() {
+      _formState = 1;
+      _feedbackMessage = "Good form. Keep your chest up.";
+      _showToast = true;
+      _repsRemaining--;
+    });
   }
 
   Future<void> _initCamera() async {
@@ -68,71 +90,40 @@ class _PoseCameraPageState extends State<PoseCameraPage>
         ResolutionPreset.medium,
         enableAudio: false,
         fps: 30,
-        imageFormatGroup: Platform.isAndroid
-            ? ImageFormatGroup.nv21
-            : ImageFormatGroup.bgra8888,
+        imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
       );
 
       await controller.initialize();
-
       await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
-
       await controller.setExposureMode(ExposureMode.auto);
       await controller.setFocusMode(FocusMode.auto);
 
-      await controller.setExposurePoint(null);
-      await controller.setFocusPoint(null);
-
-      try {
-        await controller.setExposureOffset(0.5);
-      } catch (_) {
-        // Some devices may not support this cleanly.
-      }
-
-      _rotation =
-          InputImageRotationValue.fromRawValue(camera.sensorOrientation) ??
-              InputImageRotation.rotation0deg;
-
+      _rotation = InputImageRotationValue.fromRawValue(camera.sensorOrientation) ?? InputImageRotation.rotation0deg;
       await controller.startImageStream(_processCameraImage);
 
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
+      if (!mounted) return;
 
       setState(() {
         _cameraController = controller;
         _isInitialized = true;
-        _status = 'Ready';
       });
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _status = 'Camera init error: $e';
-      });
+      debugPrint('Camera init error: $e');
     }
   }
 
   Future<void> _processCameraImage(CameraImage image) async {
     final now = DateTime.now();
-
-    if (_isProcessing) return;
-    if (now.difference(_lastProcessed).inMilliseconds < _processIntervalMs) {
-      return;
-    }
+    if (_isProcessing || now.difference(_lastProcessed).inMilliseconds < _processIntervalMs) return;
 
     _isProcessing = true;
     _lastProcessed = now;
 
     try {
       final inputImage = _inputImageFromCameraImage(image);
-      if (inputImage == null) {
-        _overlayNotifier.value = null;
-        return;
-      }
+      if (inputImage == null) return;
 
       final poses = await _poseDetector.processImage(inputImage);
-
       if (!mounted) return;
 
       _overlayNotifier.value = PoseOverlayData(
@@ -140,6 +131,7 @@ class _PoseCameraPageState extends State<PoseCameraPage>
         imageSize: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: _rotation,
         isFrontCamera: _isFrontCamera,
+        formState: _formState, // Injecting the form state to color the lines
       );
     } catch (e) {
       debugPrint('POSE ERROR: $e');
@@ -152,18 +144,7 @@ class _PoseCameraPageState extends State<PoseCameraPage>
     final format = InputImageFormatValue.fromRawValue(image.format.raw);
     if (format == null) return null;
 
-    if (Platform.isAndroid && format != InputImageFormat.nv21) {
-      debugPrint('Android image format is not NV21: $format');
-      return null;
-    }
-
-    if (Platform.isIOS && format != InputImageFormat.bgra8888) {
-      debugPrint('iOS image format is not BGRA8888: $format');
-      return null;
-    }
-
     final bytes = _concatenatePlanes(image.planes);
-
     return InputImage.fromBytes(
       bytes: bytes,
       metadata: InputImageMetadata(
@@ -183,19 +164,9 @@ class _PoseCameraPageState extends State<PoseCameraPage>
     return allBytes.done().buffer.asUint8List();
   }
 
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    final controller = _cameraController;
-
-    if (controller == null || !controller.value.isInitialized) return;
-
-    if (state == AppLifecycleState.inactive) {
-      controller.dispose();
-      _cameraController = null;
-      _isInitialized = false;
-    } else if (state == AppLifecycleState.resumed) {
-      _initCamera();
-    }
+  void _exitSession() {
+    // TODO: Route to Frame 9 (Progress Report). Popping for now to prevent getting stuck.
+    Navigator.pop(context);
   }
 
   @override
@@ -209,49 +180,144 @@ class _PoseCameraPageState extends State<PoseCameraPage>
 
   @override
   Widget build(BuildContext context) {
-    final controller = _cameraController;
-
-    if (!_isInitialized || controller == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('ML Kit Pose Test')),
-        body: Center(child: Text(_status)),
+    if (!_isInitialized || _cameraController == null) {
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator(color: mintGreen)),
       );
     }
 
-    final previewAspectRatio = 1 / controller.value.aspectRatio;
+    final previewAspectRatio = 1 / _cameraController!.value.aspectRatio;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('ML Kit Pose Test'),
-      ),
+      backgroundColor: Colors.black,
       body: SafeArea(
-        child: Center(
-          child: AspectRatio(
-            aspectRatio: previewAspectRatio,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CameraPreview(controller),
-                ValueListenableBuilder<PoseOverlayData?>(
-                  valueListenable: _overlayNotifier,
-                  builder: (context, overlay, child) {
-                    if (overlay == null) return const SizedBox.shrink();
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // 1. Camera Feed
+            Center(
+              child: AspectRatio(
+                aspectRatio: previewAspectRatio,
+                child: CameraPreview(_cameraController!),
+              ),
+            ),
 
-                    return RepaintBoundary(
+            // 2. ML Kit Skeleton Overlay
+            ValueListenableBuilder<PoseOverlayData?>(
+              valueListenable: _overlayNotifier,
+              builder: (context, overlay, child) {
+                if (overlay == null) return const SizedBox.shrink();
+                return Center(
+                  child: AspectRatio(
+                    aspectRatio: previewAspectRatio,
+                    child: RepaintBoundary(
                       child: CustomPaint(
                         painter: PosePainter(
                           poses: overlay.poses,
                           imageSize: overlay.imageSize,
                           rotation: overlay.rotation,
                           isFrontCamera: overlay.isFrontCamera,
+                          formState: overlay.formState,
                         ),
                       ),
-                    );
-                  },
-                ),
-              ],
+                    ),
+                  ),
+                );
+              },
             ),
-          ),
+
+            // 3. HUD: Top Transparent Banner (Exercise & Exit)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                color: Colors.black.withOpacity(0.6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('CURRENT EXERCISE', style: TextStyle(color: Colors.grey, fontSize: 10, letterSpacing: 1.2)),
+                        Text(_currentExercise.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                      onPressed: _exitSession,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // 4. HUD: Samsung-style Toast Notification
+            if (_showToast)
+              Positioned(
+                top: 80,
+                left: 20,
+                right: 20,
+                child: AnimatedOpacity(
+                  opacity: _showToast ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: darkSlate.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.transparent),
+                        width: 2,
+                      ),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10, offset: const Offset(0, 4)),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _formState == -1 ? Icons.warning_amber_rounded : (_formState == 1 ? Icons.check_circle : Icons.info_outline),
+                          color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.white),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(child: Text(_feedbackMessage, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // 5. HUD: Bottom Massive Rep Counter
+            Positioned(
+              bottom: 40,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.black.withOpacity(0.5),
+                    border: Border.all(color: mintGreen.withOpacity(0.5), width: 2),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _repsRemaining.toString(),
+                        style: const TextStyle(color: Colors.white, fontSize: 48, fontWeight: FontWeight.bold, height: 1.0),
+                      ),
+                      const Text('REPS', style: TextStyle(color: mintGreen, fontSize: 12, letterSpacing: 2.0)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -263,12 +329,14 @@ class PoseOverlayData {
   final Size imageSize;
   final InputImageRotation rotation;
   final bool isFrontCamera;
+  final int formState;
 
   PoseOverlayData({
     required this.poses,
     required this.imageSize,
     required this.rotation,
     required this.isFrontCamera,
+    required this.formState,
   });
 }
 
@@ -278,23 +346,35 @@ class PosePainter extends CustomPainter {
     required this.imageSize,
     required this.rotation,
     required this.isFrontCamera,
+    required this.formState,
   });
 
   final List<Pose> poses;
   final Size imageSize;
   final InputImageRotation rotation;
   final bool isFrontCamera;
+  final int formState;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final pointPaint = Paint()
-      ..color = Colors.red
-      ..strokeWidth = 4
+    // White point with a blur mask to create a "Glow" effect
+    final glowPaint = Paint()
+      ..color = Colors.white.withOpacity(0.6)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+
+    final solidPointPaint = Paint()
+      ..color = Colors.white
       ..style = PaintingStyle.fill;
 
+    // Line color logic based on the server's assessment
+    Color edgeColor = Colors.grey.withOpacity(0.7);
+    if (formState == 1) edgeColor = mintGreen;
+    if (formState == -1) edgeColor = neonRed;
+
     final linePaint = Paint()
-      ..color = Colors.greenAccent
-      ..strokeWidth = 3
+      ..color = edgeColor
+      ..strokeWidth = 4
+      ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
 
     for (final pose in poses) {
@@ -302,77 +382,51 @@ class PosePainter extends CustomPainter {
 
       void drawPoint(PoseLandmarkType type) {
         final landmark = landmarks[type];
-        if (landmark == null) return;
+        if (landmark == null || landmark.likelihood < 0.6) return;
 
         final point = _mapPoint(Offset(landmark.x, landmark.y), size);
-        canvas.drawCircle(point, 4, pointPaint);
+        canvas.drawCircle(point, 8, glowPaint); // The outer glow
+        canvas.drawCircle(point, 3, solidPointPaint); // The sharp inner core
       }
 
       void drawLine(PoseLandmarkType a, PoseLandmarkType b) {
         final p1 = landmarks[a];
         final p2 = landmarks[b];
-        if (p1 == null || p2 == null) return;
+        if (p1 == null || p2 == null || p1.likelihood < 0.6 || p2.likelihood < 0.6) return;
 
         final start = _mapPoint(Offset(p1.x, p1.y), size);
         final end = _mapPoint(Offset(p2.x, p2.y), size);
         canvas.drawLine(start, end, linePaint);
       }
 
-      for (final type in landmarks.keys) {
-        drawPoint(type);
-      }
-
+      // Draw Edges (Bones)
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder);
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow);
       drawLine(PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist);
       drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow);
       drawLine(PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist);
-
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip);
       drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip);
       drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
-
       drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee);
       drawLine(PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle);
       drawLine(PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee);
       drawLine(PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle);
+
+      // Draw Nodes (Joints)
+      for (final type in landmarks.keys) {
+        drawPoint(type);
+      }
     }
   }
 
   Offset _mapPoint(Offset point, Size canvasSize) {
-    final double x = point.dx;
-    final double y = point.dy;
-
-    double mappedX;
-    double mappedY;
-
-    switch (rotation) {
-      case InputImageRotation.rotation90deg:
-        mappedX = x / imageSize.height * canvasSize.width;
-        mappedY = y / imageSize.width * canvasSize.height;
-        break;
-
-      case InputImageRotation.rotation270deg:
-        mappedX = x / imageSize.height * canvasSize.width;
-        mappedY = y / imageSize.width * canvasSize.height;
-        break;
-
-      case InputImageRotation.rotation180deg:
-        mappedX = x / imageSize.width * canvasSize.width;
-        mappedY = y / imageSize.height * canvasSize.height;
-        break;
-
-      case InputImageRotation.rotation0deg:
-      default:
-        mappedX = x / imageSize.width * canvasSize.width;
-        mappedY = y / imageSize.height * canvasSize.height;
-        break;
-    }
+    double mappedX = point.dx / imageSize.width * canvasSize.width;
+    double mappedY = point.dy / imageSize.height * canvasSize.height;
 
     if (isFrontCamera) {
       mappedX = canvasSize.width - mappedX;
     }
-
     return Offset(mappedX, mappedY);
   }
 
@@ -381,6 +435,7 @@ class PosePainter extends CustomPainter {
     return oldDelegate.poses != poses ||
         oldDelegate.imageSize != imageSize ||
         oldDelegate.rotation != rotation ||
-        oldDelegate.isFrontCamera != isFrontCamera;
+        oldDelegate.isFrontCamera != isFrontCamera ||
+        oldDelegate.formState != formState;
   }
 }
