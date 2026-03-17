@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../main.dart'; // Inherit global colors
 
 class SettingsPage extends StatefulWidget {
@@ -9,43 +11,48 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  // Mock states for the UI
-  bool _voiceFeedback = true;
-  bool _metricUnits = true;
-  String _cameraResolution = 'Medium (720p)';
-  final TextEditingController _ipController = TextEditingController(text: '192.168.100.14');
+  int _prepTime = 10;
+  int _restTime = 30;
+  bool _audioCues = true;
+  bool _autoRecord = false;
 
   @override
-  void dispose() {
-    _ipController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    _loadSettings();
   }
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 8, bottom: 8, top: 16),
-      child: Text(
-        title.toUpperCase(),
-        style: TextStyle(
-          color: mintGreen.withOpacity(0.8),
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.2,
-        ),
-      ),
-    );
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _prepTime = prefs.getInt('prep_time') ?? 10;
+      _restTime = prefs.getInt('rest_time') ?? 30;
+      _audioCues = prefs.getBool('audio_cues') ?? true;
+      _autoRecord = prefs.getBool('auto_record') ?? false;
+    });
   }
 
-  Widget _buildCard({required List<Widget> children}) {
-    return Container(
-      decoration: BoxDecoration(
-        color: darkSlate,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: children,
-      ),
-    );
+  Future<void> _updatePrepTime(int? newValue) async {
+    if (newValue == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('prep_time', newValue);
+    setState(() => _prepTime = newValue);
+  }
+
+  Future<void> _updateRestTime(int? newValue) async {
+    if (newValue == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt('rest_time', newValue);
+    setState(() => _restTime = newValue);
+  }
+
+  Future<void> _toggleBool(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
+    setState(() {
+      if (key == 'audio_cues') _audioCues = value;
+      if (key == 'auto_record') _autoRecord = value;
+    });
   }
 
   @override
@@ -58,66 +65,79 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildSectionHeader('Preferences'),
-          _buildCard(
-            children: [
-              SwitchListTile(
-                title: const Text('Voice Feedback', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Real-time form correction audio', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                activeColor: mintGreen,
-                value: _voiceFeedback,
-                onChanged: (val) => setState(() => _voiceFeedback = val),
-              ),
-              const Divider(color: navyBlue, height: 1),
-              SwitchListTile(
-                title: const Text('Use Metric Units', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Toggle between kg/cm and lbs/in', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                activeColor: mintGreen,
-                value: _metricUnits,
-                onChanged: (val) => setState(() => _metricUnits = val),
-              ),
-            ],
-          ),
-
-          _buildSectionHeader('Hardware & ML Kit'),
-          _buildCard(
-            children: [
-              ListTile(
-                title: const Text('Camera Resolution', style: TextStyle(color: Colors.white)),
-                subtitle: const Text('Lower resolution saves battery and reduces thermal throttling.', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                trailing: DropdownButton<String>(
-                  dropdownColor: navyBlue,
-                  value: _cameraResolution,
-                  style: const TextStyle(color: mintGreen),
-                  underline: const SizedBox(),
-                  items: ['Low (480p)', 'Medium (720p)', 'High (1080p)']
-                      .map((res) => DropdownMenuItem(value: res, child: Text(res)))
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) setState(() => _cameraResolution = val);
-                  },
-                ),
-              ),
-            ],
-          ),
-
-          _buildSectionHeader('Server Routing (Dev)'),
-          _buildCard(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: TextField(
-                  controller: _ipController,
-                  style: const TextStyle(color: mintGreen, fontFamily: 'monospace'),
-                  decoration: const InputDecoration(
-                    labelText: 'Local API IP Address',
-                    labelStyle: TextStyle(color: Colors.grey),
-                    border: InputBorder.none,
-                    icon: Icon(Icons.router, color: Colors.grey),
+          // --- TIMERS ---
+          const Text('SESSION TIMERS', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(color: darkSlate, borderRadius: BorderRadius.circular(12)),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.timer, color: mintGreen),
+                  title: const Text('Preparation Time', style: TextStyle(color: Colors.white)),
+                  subtitle: const Text('Countdown before first exercise', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  trailing: DropdownButton<int>(
+                    value: _prepTime,
+                    dropdownColor: navyBlue,
+                    style: const TextStyle(color: mintGreen, fontWeight: FontWeight.bold),
+                    underline: const SizedBox(),
+                    items: const [
+                      DropdownMenuItem(value: 5, child: Text('5 sec')),
+                      DropdownMenuItem(value: 10, child: Text('10 sec')),
+                      DropdownMenuItem(value: 15, child: Text('15 sec')),
+                    ],
+                    onChanged: _updatePrepTime,
                   ),
                 ),
-              ),
-            ],
+                Divider(color: Colors.grey.withOpacity(0.2), height: 1),
+                ListTile(
+                  leading: const Icon(Icons.hourglass_bottom, color: mintGreen),
+                  title: const Text('Rest Duration', style: TextStyle(color: Colors.white)),
+                  subtitle: const Text('Break between exercises', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  trailing: DropdownButton<int>(
+                    value: _restTime,
+                    dropdownColor: navyBlue,
+                    style: const TextStyle(color: mintGreen, fontWeight: FontWeight.bold),
+                    underline: const SizedBox(),
+                    items: const [
+                      DropdownMenuItem(value: 15, child: Text('15 sec')),
+                      DropdownMenuItem(value: 30, child: Text('30 sec')),
+                      DropdownMenuItem(value: 45, child: Text('45 sec')),
+                      DropdownMenuItem(value: 60, child: Text('60 sec')),
+                    ],
+                    onChanged: _updateRestTime,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
+          const SizedBox(height: 24),
+
+          // --- PREFERENCES ---
+          const Text('APP PREFERENCES', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(color: darkSlate, borderRadius: BorderRadius.circular(12)),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  activeColor: mintGreen,
+                  title: const Text('Audio Cues', style: TextStyle(color: Colors.white)),
+                  subtitle: const Text('Voice feedback for form correction', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  value: _audioCues,
+                  onChanged: (val) => _toggleBool('audio_cues', val),
+                ),
+                Divider(color: Colors.grey.withOpacity(0.2), height: 1),
+                SwitchListTile(
+                  activeColor: mintGreen,
+                  title: const Text('Auto-Record Sessions', style: TextStyle(color: Colors.white)),
+                  subtitle: const Text('Save video to device for review', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  value: _autoRecord,
+                  onChanged: (val) => _toggleBool('auto_record', val),
+                ),
+              ],
+            ),
           ),
         ],
       ),

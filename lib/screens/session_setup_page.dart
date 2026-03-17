@@ -246,7 +246,12 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
               onPressed: _routine.isEmpty ? null : () {
                 Navigator.pushReplacement(
                   context,
-                  MaterialPageRoute(builder: (_) => PoseCameraPage(cameras: widget.cameras)),
+                  MaterialPageRoute(
+                    builder: (_) => PoseCameraPage(
+                      cameras: widget.cameras,
+                      routine: _routine, // Passing the configured routine
+                    ),
+                  ),
                 );
               },
               child: const Text(
