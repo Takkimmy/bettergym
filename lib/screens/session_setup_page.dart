@@ -196,9 +196,9 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                                 icon: const Icon(Icons.delete, color: neonRed, size: 20),
                                 onPressed: () => _removeExercise(index),
                               ),
-                              const ReorderableDragStartListener(
+                              ReorderableDragStartListener(
                                 index: index,
-                                child: Icon(Icons.drag_handle, color: Colors.grey),
+                                child: const Icon(Icons.drag_handle, color: Colors.grey),
                               ),
                             ],
                           ),
