@@ -31,6 +31,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   bool _isInitialized = false;
   bool _isProcessing = false;
   bool _isFrontCamera = false;
+  bool _isUserInFrame = false; // NEW: Tracks Skeleton Lock
 
   InputImageRotation _rotation = InputImageRotation.rotation0deg;
   final ValueNotifier<PoseOverlayData?> _overlayNotifier = ValueNotifier<PoseOverlayData?>(null);
@@ -64,7 +65,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     _initCamera();
     _loadSettingsAndStart();
 
-    // UNLOCK ORIENTATION FOR HUD
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
@@ -127,7 +127,13 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     _phaseTimer?.cancel();
     _phaseTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) { timer.cancel(); return; }
+      
       setState(() {
+        // NEW: Skeleton Lock. Freeze prep timer if user is not fully in frame.
+        if (_currentPhase == SessionPhase.prep && !_isUserInFrame) {
+          return; 
+        }
+
         if (_currentPhase == SessionPhase.active && widget.routine[_currentExerciseIndex].isDuration) {
           _repsOrSecondsRemaining--;
           if (_repsOrSecondsRemaining <= 0) {
@@ -219,8 +225,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       );
 
       await controller.initialize();
-      // NOT locking capture orientation here to allow dynamic rotation
-      
       _rotation = InputImageRotationValue.fromRawValue(camera.sensorOrientation) ?? InputImageRotation.rotation0deg;
       await controller.startImageStream(_processCameraImage);
 
@@ -245,6 +249,26 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       if (inputImage == null) return;
       final poses = await _poseDetector.processImage(inputImage);
       if (!mounted) return;
+
+      // NEW: Target Acquisition Logic
+      bool targetLocked = false;
+      if (poses.isNotEmpty) {
+        final landmarks = poses.first.landmarks;
+        final nose = landmarks[PoseLandmarkType.nose];
+        final leftAnkle = landmarks[PoseLandmarkType.leftAnkle];
+        final rightAnkle = landmarks[PoseLandmarkType.rightAnkle];
+
+        // Ensure head and feet are visible with reasonable confidence
+        if (nose != null && leftAnkle != null && rightAnkle != null) {
+          if (nose.likelihood > 0.6 && (leftAnkle.likelihood > 0.6 || rightAnkle.likelihood > 0.6)) {
+            targetLocked = true;
+          }
+        }
+      }
+
+      setState(() {
+        _isUserInFrame = targetLocked;
+      });
       
       final isDevicePortrait = MediaQuery.of(context).orientation == Orientation.portrait;
 
@@ -320,29 +344,66 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       nextExerciseName = widget.routine[_currentExerciseIndex + 1].name;
     }
 
+    // NEW: Dynamic UI based on Skeleton Lock
+    final displayStatus = isPrep 
+        ? (_isUserInFrame ? 'LOCK SECURED' : 'TARGET LOST') 
+        : 'REST';
+        
+    final statusColor = isPrep 
+        ? (_isUserInFrame ? mintGreen : neonRed) 
+        : mintGreen;
+
     return Container(
-      color: Colors.black.withOpacity(0.7),
+      color: Colors.black.withOpacity(isPrep && !_isUserInFrame ? 0.8 : 0.7),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(isPrep ? 'PREPARING' : 'REST',
-                style: const TextStyle(color: mintGreen, fontSize: 18, letterSpacing: 4.0, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              transitionBuilder: (Widget child, Animation<double> animation) {
-                return SlideTransition(
-                  position: Tween<Offset>(begin: const Offset(0.0, -0.2), end: Offset.zero).animate(animation),
-                  child: FadeTransition(opacity: animation, child: child),
-                );
-              },
-              child: Text(
-                _countdownSeconds.toString(),
-                key: ValueKey<int>(_countdownSeconds),
-                style: const TextStyle(color: Colors.white, fontSize: 120, fontWeight: FontWeight.bold, height: 1.0)
+            // Framing Bracket Visuals
+            if (isPrep)
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                margin: const EdgeInsets.only(bottom: 24),
+                width: 150,
+                height: 150,
+                decoration: BoxDecoration(
+                  border: Border.all(color: statusColor, width: 4),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Center(
+                  child: Icon(
+                    _isUserInFrame ? Icons.center_focus_strong : Icons.person_search,
+                    color: statusColor,
+                    size: 48,
+                  ),
+                ),
               ),
-            ),
+
+            Text(displayStatus,
+                style: TextStyle(color: statusColor, fontSize: 18, letterSpacing: 4.0, fontWeight: FontWeight.bold)),
+            
+            const SizedBox(height: 16),
+            
+            if (isPrep && !_isUserInFrame)
+              const Text("STEP BACK\nFULL BODY REQUIRED", 
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, height: 1.2))
+            else
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 200),
+                transitionBuilder: (Widget child, Animation<double> animation) {
+                  return SlideTransition(
+                    position: Tween<Offset>(begin: const Offset(0.0, -0.2), end: Offset.zero).animate(animation),
+                    child: FadeTransition(opacity: animation, child: child),
+                  );
+                },
+                child: Text(
+                  _countdownSeconds.toString(),
+                  key: ValueKey<int>(_countdownSeconds),
+                  style: const TextStyle(color: Colors.white, fontSize: 120, fontWeight: FontWeight.bold, height: 1.0)
+                ),
+              ),
+              
             const SizedBox(height: 24),
             Text('NEXT: ${nextExerciseName.toUpperCase()}',
                 style: const TextStyle(color: Colors.grey, fontSize: 16, letterSpacing: 1.5)),

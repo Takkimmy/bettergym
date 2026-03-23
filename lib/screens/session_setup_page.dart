@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart'; 
 import 'pose_camera_page.dart';
@@ -12,6 +14,20 @@ class WorkoutSet {
 
   WorkoutSet({required this.name, required this.target, required this.isDuration})
       : id = DateTime.now().microsecondsSinceEpoch.toString(); 
+
+  // Required for saving to templates
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'target': target,
+        'isDuration': isDuration,
+      };
+
+  // Required for loading from templates
+  factory WorkoutSet.fromJson(Map<String, dynamic> json) => WorkoutSet(
+        name: json['name'],
+        target: json['target'],
+        isDuration: json['isDuration'],
+      );
 }
 
 class SessionSetupPage extends StatefulWidget {
@@ -28,10 +44,101 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
     'Pull Ups', 'Pike Pushups', 'Sit Ups', 'Dips', 'Bench Dips'
   ];
 
-  final List<WorkoutSet> _routine = [
+  List<WorkoutSet> _routine = [
     WorkoutSet(name: 'Squats', target: 15, isDuration: false),
     WorkoutSet(name: 'Plank', target: 60, isDuration: true),
   ];
+
+  // --- TEMPLATE LOGIC ---
+  Future<void> _saveTemplate() async {
+    if (_routine.isEmpty) return;
+
+    TextEditingController nameController = TextEditingController();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: darkSlate,
+        title: const Text('Save Template', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: nameController,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: "e.g., Leg Day Alpha",
+            hintStyle: const TextStyle(color: Colors.grey),
+            filled: true, fillColor: navyBlue,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel', style: TextStyle(color: Colors.grey))),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: mintGreen, foregroundColor: navyBlue),
+            onPressed: () async {
+              if (nameController.text.isEmpty) return;
+              final prefs = await SharedPreferences.getInstance();
+              
+              // Load existing templates dictionary
+              String? existingPrefs = prefs.getString('saved_templates');
+              Map<String, dynamic> templates = existingPrefs != null ? jsonDecode(existingPrefs) : {};
+              
+              // Serialize current routine and save
+              templates[nameController.text] = _routine.map((e) => e.toJson()).toList();
+              await prefs.setString('saved_templates', jsonEncode(templates));
+              
+              if (mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Template saved.'), backgroundColor: mintGreen));
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _loadTemplate() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? existingPrefs = prefs.getString('saved_templates');
+    if (existingPrefs == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No saved templates found.'), backgroundColor: Colors.red));
+      return;
+    }
+
+    Map<String, dynamic> templates = jsonDecode(existingPrefs);
+    if (templates.isEmpty) return;
+
+    if (!mounted) return;
+    
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: darkSlate,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            const Text('Load Template', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            ...templates.keys.map((templateName) => ListTile(
+              title: Text(templateName, style: const TextStyle(color: mintGreen, fontWeight: FontWeight.bold)),
+              subtitle: Text('${(templates[templateName] as List).length} exercises', style: const TextStyle(color: Colors.grey)),
+              trailing: const Icon(Icons.download, color: mintGreen),
+              onTap: () {
+                setState(() {
+                  _routine = (templates[templateName] as List)
+                      .map((item) => WorkoutSet.fromJson(item))
+                      .toList();
+                });
+                Navigator.pop(context);
+              },
+            )),
+          ],
+        );
+      },
+    );
+  }
 
   void _addOrEditExercise({WorkoutSet? existingSet, int? index}) {
     String selectedName = existingSet?.name ?? _availableExercises.first;
@@ -47,30 +154,23 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             return Padding(
-              padding: EdgeInsets.only(
-                bottom: MediaQuery.of(context).viewInsets.bottom,
-                left: 20, right: 20, top: 20,
-              ),
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 20, right: 20, top: 20),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(existingSet == null ? 'Add Exercise' : 'Edit Exercise', 
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(existingSet == null ? 'Add Exercise' : 'Edit Exercise', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     dropdownColor: navyBlue,
                     value: selectedName,
                     style: const TextStyle(color: mintGreen),
                     decoration: InputDecoration(
-                      filled: true,
-                      fillColor: navyBlue,
+                      filled: true, fillColor: navyBlue,
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                     ),
                     items: _availableExercises.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                    onChanged: (val) {
-                      if (val != null) setModalState(() => selectedName = val);
-                    },
+                    onChanged: (val) { if (val != null) setModalState(() => selectedName = val); },
                   ),
                   const SizedBox(height: 16),
                   Row(
@@ -83,8 +183,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                           decoration: InputDecoration(
                             labelText: isDuration ? 'Target (Seconds)' : 'Target (Reps)',
                             labelStyle: const TextStyle(color: Colors.grey),
-                            filled: true,
-                            fillColor: navyBlue,
+                            filled: true, fillColor: navyBlue,
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
                           ),
                         ),
@@ -93,11 +192,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                       Column(
                         children: [
                           const Text('Duration?', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                          Switch(
-                            activeColor: mintGreen,
-                            value: isDuration,
-                            onChanged: (val) => setModalState(() => isDuration = val),
-                          ),
+                          Switch(activeColor: mintGreen, value: isDuration, onChanged: (val) => setModalState(() => isDuration = val)),
                         ],
                       )
                     ],
@@ -105,8 +200,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                   const SizedBox(height: 24),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: mintGreen,
-                      foregroundColor: navyBlue,
+                      backgroundColor: mintGreen, foregroundColor: navyBlue,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
@@ -136,9 +230,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
   }
 
   void _removeExercise(int index) {
-    setState(() {
-      _routine.removeAt(index);
-    });
+    setState(() => _routine.removeAt(index));
   }
 
   @override
@@ -146,18 +238,40 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Session Setup'), 
-        centerTitle: false, // Left aligned
-        leading: null, // Removes default left button
+        centerTitle: false,
         automaticallyImplyLeading: false, 
         actions: [
-          IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () => Navigator.pop(context), // Right aligned exit
-          ),
+          IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
         ],
       ),
       body: Column(
         children: [
+          // --- TEMPLATE CONTROLS ---
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.grey)),
+                    icon: const Icon(Icons.folder_open, size: 18),
+                    label: const Text('Load'),
+                    onPressed: _loadTemplate,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(foregroundColor: mintGreen, side: const BorderSide(color: mintGreen)),
+                    icon: const Icon(Icons.save, size: 18),
+                    label: const Text('Save'),
+                    onPressed: _routine.isEmpty ? null : _saveTemplate,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          
           Expanded(
             child: _routine.isEmpty
                 ? Center(
@@ -178,7 +292,6 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                         _routine.insert(newIndex, item);
                       });
                     },
-                    // Embedded Add Button in the scrolling list
                     footer: Padding(
                       padding: const EdgeInsets.only(top: 16.0),
                       child: OutlinedButton.icon(
@@ -209,18 +322,9 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit, color: Colors.grey, size: 20),
-                                onPressed: () => _addOrEditExercise(existingSet: set, index: index),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete, color: neonRed, size: 20),
-                                onPressed: () => _removeExercise(index),
-                              ),
-                              ReorderableDragStartListener(
-                                index: index,
-                                child: const Icon(Icons.drag_handle, color: Colors.grey),
-                              ),
+                              IconButton(icon: const Icon(Icons.edit, color: Colors.grey, size: 20), onPressed: () => _addOrEditExercise(existingSet: set, index: index)),
+                              IconButton(icon: const Icon(Icons.delete, color: neonRed, size: 20), onPressed: () => _removeExercise(index)),
+                              ReorderableDragStartListener(index: index, child: const Icon(Icons.drag_handle, color: Colors.grey)),
                             ],
                           ),
                         ),
@@ -231,33 +335,18 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
           
           Container(
             padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: navyBlue,
-              border: Border(top: BorderSide(color: mintGreen.withOpacity(0.2))),
-            ),
+            decoration: BoxDecoration(color: navyBlue, border: Border(top: BorderSide(color: mintGreen.withOpacity(0.2)))),
             child: ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.greenAccent.shade400,
-                foregroundColor: Colors.black,
+                backgroundColor: Colors.greenAccent.shade400, foregroundColor: Colors.black,
                 minimumSize: const Size.fromHeight(60),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 elevation: 8,
               ),
               onPressed: _routine.isEmpty ? null : () {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PoseCameraPage(
-                      cameras: widget.cameras,
-                      routine: _routine, // Passing the configured routine
-                    ),
-                  ),
-                );
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PoseCameraPage(cameras: widget.cameras, routine: _routine)));
               },
-              child: const Text(
-                'START SESSION',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5),
-              ),
+              child: const Text('START SESSION', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
             ),
           )
         ],
