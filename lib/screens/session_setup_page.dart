@@ -15,14 +15,12 @@ class WorkoutSet {
   WorkoutSet({required this.name, required this.target, required this.isDuration})
       : id = DateTime.now().microsecondsSinceEpoch.toString(); 
 
-  // Required for saving to templates
   Map<String, dynamic> toJson() => {
         'name': name,
         'target': target,
         'isDuration': isDuration,
       };
 
-  // Required for loading from templates
   factory WorkoutSet.fromJson(Map<String, dynamic> json) => WorkoutSet(
         name: json['name'],
         target: json['target'],
@@ -78,11 +76,9 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
               if (nameController.text.isEmpty) return;
               final prefs = await SharedPreferences.getInstance();
               
-              // Load existing templates dictionary
               String? existingPrefs = prefs.getString('saved_templates');
               Map<String, dynamic> templates = existingPrefs != null ? jsonDecode(existingPrefs) : {};
               
-              // Serialize current routine and save
               templates[nameController.text] = _routine.map((e) => e.toJson()).toList();
               await prefs.setString('saved_templates', jsonEncode(templates));
               
@@ -107,7 +103,10 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
     }
 
     Map<String, dynamic> templates = jsonDecode(existingPrefs);
-    if (templates.isEmpty) return;
+    if (templates.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No saved templates found.'), backgroundColor: Colors.red));
+      return;
+    }
 
     if (!mounted) return;
     
@@ -116,25 +115,44 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
       backgroundColor: darkSlate,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
-        return ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            const Text('Load Template', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            ...templates.keys.map((templateName) => ListTile(
-              title: Text(templateName, style: const TextStyle(color: mintGreen, fontWeight: FontWeight.bold)),
-              subtitle: Text('${(templates[templateName] as List).length} exercises', style: const TextStyle(color: Colors.grey)),
-              trailing: const Icon(Icons.download, color: mintGreen),
-              onTap: () {
-                setState(() {
-                  _routine = (templates[templateName] as List)
-                      .map((item) => WorkoutSet.fromJson(item))
-                      .toList();
-                });
-                Navigator.pop(context);
-              },
-            )),
-          ],
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            if (templates.isEmpty) {
+              return const Center(child: Text("All templates deleted.", style: TextStyle(color: Colors.grey)));
+            }
+
+            return ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                const Text('Load Template', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                ...templates.keys.map((templateName) => ListTile(
+                  title: Text(templateName, style: const TextStyle(color: mintGreen, fontWeight: FontWeight.bold)),
+                  subtitle: Text('${(templates[templateName] as List).length} exercises', style: const TextStyle(color: Colors.grey)),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete_outline, color: neonRed),
+                    onPressed: () async {
+                      setModalState(() {
+                        templates.remove(templateName);
+                      });
+                      await prefs.setString('saved_templates', jsonEncode(templates));
+                      if (templates.isEmpty && mounted) {
+                        Navigator.pop(context);
+                      }
+                    },
+                  ),
+                  onTap: () {
+                    setState(() {
+                      _routine = (templates[templateName] as List)
+                          .map((item) => WorkoutSet.fromJson(item))
+                          .toList();
+                    });
+                    Navigator.pop(context);
+                  },
+                )),
+              ],
+            );
+          }
         );
       },
     );
@@ -142,8 +160,9 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
 
   void _addOrEditExercise({WorkoutSet? existingSet, int? index}) {
     String selectedName = existingSet?.name ?? _availableExercises.first;
-    TextEditingController targetController = TextEditingController(text: existingSet?.target.toString() ?? '10');
+    TextEditingController targetController = TextEditingController(text: existingSet?.target.toString() ?? '');
     bool isDuration = existingSet?.isDuration ?? false;
+    String? errorMessage; // NEW: Tracks validation failures
 
     showModalBottomSheet(
       context: context,
@@ -174,26 +193,62 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                   ),
                   const SizedBox(height: 16),
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
-                        child: TextField(
-                          controller: targetController,
-                          keyboardType: TextInputType.number,
-                          style: const TextStyle(color: Colors.white),
-                          decoration: InputDecoration(
-                            labelText: isDuration ? 'Target (Seconds)' : 'Target (Reps)',
-                            labelStyle: const TextStyle(color: Colors.grey),
-                            filled: true, fillColor: navyBlue,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TextField(
+                              controller: targetController,
+                              keyboardType: TextInputType.number,
+                              style: const TextStyle(color: Colors.white),
+                              decoration: InputDecoration(
+                                labelText: isDuration ? 'Target (Seconds)' : 'Target (Reps)',
+                                labelStyle: const TextStyle(color: Colors.grey),
+                                filled: true, fillColor: navyBlue,
+                                // NEW: Red border if error exists
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10), 
+                                  borderSide: errorMessage != null ? const BorderSide(color: neonRed, width: 2) : BorderSide.none
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10), 
+                                  borderSide: errorMessage != null ? const BorderSide(color: neonRed, width: 2) : const BorderSide(color: mintGreen, width: 2)
+                                ),
+                              ),
+                              onChanged: (_) {
+                                // Clear error when user starts typing again
+                                if (errorMessage != null) setModalState(() => errorMessage = null);
+                              },
+                            ),
+                            // NEW: Inline error message
+                            if (errorMessage != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8, left: 4),
+                                child: Text(errorMessage!, style: const TextStyle(color: neonRed, fontSize: 12, fontWeight: FontWeight.bold)),
+                              ),
+                          ],
                         ),
                       ),
                       const SizedBox(width: 16),
-                      Column(
-                        children: [
-                          const Text('Duration?', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                          Switch(activeColor: mintGreen, value: isDuration, onChanged: (val) => setModalState(() => isDuration = val)),
-                        ],
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: Column(
+                          children: [
+                            const Text('Duration?', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            Switch(
+                              activeColor: mintGreen, 
+                              value: isDuration, 
+                              onChanged: (val) {
+                                setModalState(() {
+                                  isDuration = val;
+                                  errorMessage = null; // Clear errors on type switch
+                                });
+                              }
+                            ),
+                          ],
+                        ),
                       )
                     ],
                   ),
@@ -205,7 +260,16 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                     onPressed: () {
-                      final target = int.tryParse(targetController.text) ?? 10;
+                      // NEW: Strict Input Validation
+                      final target = int.tryParse(targetController.text);
+                      
+                      if (target == null || target <= 0) {
+                        setModalState(() {
+                          errorMessage = isDuration ? "Must be at least 1 second." : "Must be at least 1 rep.";
+                        });
+                        return; // Halt execution
+                      }
+
                       setState(() {
                         if (existingSet != null && index != null) {
                           existingSet.name = selectedName;
@@ -246,7 +310,6 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
       ),
       body: Column(
         children: [
-          // --- TEMPLATE CONTROLS ---
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
             child: Row(

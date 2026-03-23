@@ -6,14 +6,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import 'package:permission_handler/permission_handler.dart'; // NEW: Permission handling
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
 import '../services/audio_service.dart'; 
 import 'progress_report_page.dart';
 import 'session_setup_page.dart';
+import 'session_summary_page.dart';
 
-// NEW: Added 'acquisition' to the lifecycle
 enum SessionPhase { acquisition, prep, active, rest, finished }
 
 class PoseCameraPage extends StatefulWidget {
@@ -29,6 +30,10 @@ class PoseCameraPage extends StatefulWidget {
 class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObserver {
   CameraController? _cameraController;
   late final PoseDetector _poseDetector;
+
+  // --- NEW: Permission State Variables ---
+  bool _isCheckingPermission = true;
+  bool _hasCameraPermission = false;
 
   bool _isInitialized = false;
   bool _isProcessing = false;
@@ -64,14 +69,34 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     _poseDetector = PoseDetector(
       options: PoseDetectorOptions(mode: PoseDetectionMode.stream, model: PoseDetectionModel.base),
     );
-    _initCamera();
-    _loadSettingsAndStart();
+    
+    // NEW: Intercept flow to check permissions first
+    _verifyPermissionsAndBoot();
 
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+  }
+
+  // --- NEW: Permission Gatekeeper ---
+  Future<void> _verifyPermissionsAndBoot() async {
+    final status = await Permission.camera.request();
+    
+    if (status.isGranted) {
+      setState(() {
+        _hasCameraPermission = true;
+        _isCheckingPermission = false;
+      });
+      _initCamera();
+      _loadSettingsAndStart();
+    } else {
+      setState(() {
+        _hasCameraPermission = false;
+        _isCheckingPermission = false;
+      });
+    }
   }
 
   Future<void> _loadSettingsAndStart() async {
@@ -84,20 +109,19 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     });
 
     if (widget.routine.isNotEmpty) {
-      _startAcquisitionPhase(); // Start at the new phase
+      _startAcquisitionPhase();
     } else {
       _exitSession();
     }
   }
 
-  // --- NEW PHASE: TARGET ACQUISITION ---
   void _startAcquisitionPhase() {
     setState(() {
       _currentPhase = SessionPhase.acquisition;
-      _countdownSeconds = 5; // Strict 5-second hold required
+      _countdownSeconds = 5; 
     });
     _triggerToast("Calibrating tracker...", 0);
-    _runCountdown(() => _startPrepPhase()); // Moves to prep when done
+    _runCountdown(() => _startPrepPhase()); 
   }
 
   void _startPrepPhase() {
@@ -143,16 +167,15 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       if (!mounted) { timer.cancel(); return; }
       
       setState(() {
-        // LOGIC SPLIT: The 5-Second Skeleton Lock
         if (_currentPhase == SessionPhase.acquisition) {
           if (_isUserInFrame) {
             _countdownSeconds--;
             if (_countdownSeconds <= 0) {
               timer.cancel();
-              onComplete(); // Successfully locked, move to Prep
+              onComplete(); 
             }
           } else {
-            _countdownSeconds = 5; // Reset if they step out of frame
+            _countdownSeconds = 5; 
           }
           return; 
         }
@@ -346,7 +369,12 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     _toastTimer?.cancel();
     _exitTimer?.cancel();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => ProgressReportPage(cameras: widget.cameras)));
+    
+    // NEW: Routes to the Climax screen instead of the Report
+    Navigator.pushReplacement(
+      context, 
+      MaterialPageRoute(builder: (_) => SessionSummaryPage(cameras: widget.cameras))
+    );
   }
 
   @override
@@ -451,8 +479,69 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     );
   }
 
+  // --- NEW: Intercepts the build to show the Permission Wall if needed ---
   @override
   Widget build(BuildContext context) {
+    if (_isCheckingPermission) {
+      return const Scaffold(
+        backgroundColor: Colors.black, 
+        body: Center(child: CircularProgressIndicator(color: mintGreen))
+      );
+    }
+
+    if (!_hasCameraPermission) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent, 
+          elevation: 0, 
+          leading: IconButton(
+            icon: const Icon(Icons.close, color: Colors.white), 
+            onPressed: () {
+              SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+              Navigator.pop(context); // Fallback to setup screen
+            }
+          )
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(color: neonRed.withOpacity(0.1), shape: BoxShape.circle),
+                  child: const Icon(Icons.videocam_off, color: neonRed, size: 64),
+                ),
+                const SizedBox(height: 32),
+                const Text("Camera Access Required", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                const Text(
+                  "Better-GYM requires your camera to track your form and count reps. We process everything locally and do not store your video.", 
+                  textAlign: TextAlign.center, 
+                  style: TextStyle(color: Colors.grey, fontSize: 14, height: 1.5)
+                ),
+                const SizedBox(height: 48),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: mintGreen,
+                    foregroundColor: navyBlue,
+                    minimumSize: const Size.fromHeight(56),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () {
+                    openAppSettings(); // Jumps user directly to phone settings
+                  },
+                  child: const Text('OPEN SYSTEM SETTINGS', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     if (!_isInitialized || _cameraController == null) {
       return const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator(color: mintGreen)));
     }

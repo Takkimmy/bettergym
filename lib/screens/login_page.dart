@@ -22,6 +22,7 @@ class _LoginPageState extends State<LoginPage> {
 
   bool _isLoading = false;
   String _message = '';
+  bool _isPasswordVisible = false; // NEW: Tracks password visibility
 
   Future<void> _saveLogin({required String username}) async {
     final prefs = await SharedPreferences.getInstance();
@@ -60,7 +61,6 @@ class _LoginPageState extends State<LoginPage> {
 
         if (!mounted) return;
 
-        // --- UPDATED ROUTING: Sends user to the new MainLayout ---
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -93,12 +93,13 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  // --- CUSTOM UI STYLING FOR INPUTS ---
-  InputDecoration _customInputDecoration(String label, IconData icon) {
+  // UPDATED: Now accepts an optional suffixIcon widget
+  InputDecoration _customInputDecoration(String label, IconData icon, {Widget? suffixIcon}) {
     return InputDecoration(
       labelText: label,
       labelStyle: TextStyle(color: Colors.grey.shade400),
       prefixIcon: Icon(icon, color: mintGreen),
+      suffixIcon: suffixIcon, // Injects the eyeball icon here
       filled: true,
       fillColor: darkSlate,
       enabledBorder: OutlineInputBorder(
@@ -114,7 +115,6 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Inherit the background color from main.dart's theme
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -157,12 +157,29 @@ class _LoginPageState extends State<LoginPage> {
                     decoration: _customInputDecoration('Username', Icons.person),
                   ),
                   const SizedBox(height: 16),
+                  
+                  // UPDATED: Password Field with Toggle
                   TextField(
                     controller: _passwordController,
-                    obscureText: true,
+                    obscureText: !_isPasswordVisible, // Inverts based on state
                     style: const TextStyle(color: Colors.white),
-                    decoration: _customInputDecoration('Password', Icons.lock),
+                    decoration: _customInputDecoration(
+                      'Password', 
+                      Icons.lock,
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _isPasswordVisible ? Icons.visibility : Icons.visibility_off,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _isPasswordVisible = !_isPasswordVisible;
+                          });
+                        },
+                      ),
+                    ),
                   ),
+                  
                   const SizedBox(height: 24),
 
                   // Login Button
