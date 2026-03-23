@@ -27,7 +27,7 @@ class _MainLayoutState extends State<MainLayout> {
     // All four tabs are now fully wired to their respective screens
     _pages = [
       const SettingsPage(),
-      const DashboardPage(),
+      const DashboardPage(cameras: widget.cameras),
       const NotificationsPage(),
       ProfilePage(cameras: widget.cameras),
     ];

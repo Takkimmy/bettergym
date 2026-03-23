@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart'; // NEW: Required for camera passing
 import '../main.dart'; 
+import 'session_setup_page.dart'; // NEW: Required for navigation
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final List<CameraDescription> cameras; // NEW: Accepts cameras from MainLayout
+
+  const DashboardPage({super.key, required this.cameras});
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -10,9 +14,7 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   // --- MOCK DATA ---
-  // Set _weeklySessions to 0 to trigger the Day Zero empty state. 
-  // Set it to 1+ to see the normal populated dashboard.
-  final int _weeklySessions = 0; 
+  final int _weeklySessions = 0; // Kept at 0 for Day Zero state
   final double _averageFormScore = 0.0; 
   final String _focusMuscle = "Quadriceps";
 
@@ -76,7 +78,6 @@ class _DashboardPageState extends State<DashboardPage> {
       appBar: AppBar(
         title: const Text('Statistics'),
         centerTitle: false,
-        // Sync button entirely removed
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -200,11 +201,11 @@ class _DashboardPageState extends State<DashboardPage> {
                         elevation: 8,
                       ),
                       onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Tap the Camera icon in the bottom menu to begin.'), 
-                            backgroundColor: darkSlate,
-                            behavior: SnackBarBehavior.floating,
+                        // NEW: Direct route to the Session Setup Page
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => SessionSetupPage(cameras: widget.cameras),
                           ),
                         );
                       },

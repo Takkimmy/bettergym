@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../main.dart'; // Inherit global colors
+import '../main.dart'; 
+import '../services/audio_service.dart'; // NEW: Added to update live audio state
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -15,7 +16,6 @@ class _SettingsPageState extends State<SettingsPage> {
   int _restTime = 30;
   bool _autoRecord = false;
   
-  // Audio State
   bool _masterSound = true;
   bool _leadInBeeps = true;
   double _volume = 0.5;
@@ -136,6 +136,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     final prefs = await SharedPreferences.getInstance();
                     await prefs.setBool('master_sound', val);
                     setState(() => _masterSound = val);
+                    await AudioService.instance.loadSettings(); // BUG FIX
                   },
                 ),
                 Divider(color: Colors.grey.withOpacity(0.2), height: 1),
@@ -148,6 +149,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     final prefs = await SharedPreferences.getInstance();
                     await prefs.setBool('leadin_beeps', val);
                     setState(() => _leadInBeeps = val);
+                    await AudioService.instance.loadSettings(); // BUG FIX
                   },
                 ),
                 Divider(color: Colors.grey.withOpacity(0.2), height: 1),
@@ -168,6 +170,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     onChangeEnd: (val) async {
                       final prefs = await SharedPreferences.getInstance();
                       await prefs.setDouble('audio_volume', val);
+                      await AudioService.instance.loadSettings(); // BUG FIX
                     },
                   ),
                 ),

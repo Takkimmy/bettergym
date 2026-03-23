@@ -9,11 +9,12 @@ import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
-import '../services/audio_service.dart'; // NEW: Audio integration
+import '../services/audio_service.dart'; 
 import 'progress_report_page.dart';
 import 'session_setup_page.dart';
 
-enum SessionPhase { prep, active, rest, finished }
+// NEW: Added 'acquisition' to the lifecycle
+enum SessionPhase { acquisition, prep, active, rest, finished }
 
 class PoseCameraPage extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -39,7 +40,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   DateTime _lastProcessed = DateTime.fromMillisecondsSinceEpoch(0);
   static const int _processIntervalMs = 30;
 
-  SessionPhase _currentPhase = SessionPhase.prep;
+  SessionPhase _currentPhase = SessionPhase.acquisition;
   int _currentExerciseIndex = 0;
 
   int _prepTimeSetting = 10;
@@ -75,7 +76,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
   Future<void> _loadSettingsAndStart() async {
     final prefs = await SharedPreferences.getInstance();
-    await AudioService.instance.loadSettings(); // NEW: Load audio preferences
+    await AudioService.instance.loadSettings(); 
 
     setState(() {
       _prepTimeSetting = prefs.getInt('prep_time') ?? 10;
@@ -83,10 +84,20 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     });
 
     if (widget.routine.isNotEmpty) {
-      _startPrepPhase();
+      _startAcquisitionPhase(); // Start at the new phase
     } else {
       _exitSession();
     }
+  }
+
+  // --- NEW PHASE: TARGET ACQUISITION ---
+  void _startAcquisitionPhase() {
+    setState(() {
+      _currentPhase = SessionPhase.acquisition;
+      _countdownSeconds = 5; // Strict 5-second hold required
+    });
+    _triggerToast("Calibrating tracker...", 0);
+    _runCountdown(() => _startPrepPhase()); // Moves to prep when done
   }
 
   void _startPrepPhase() {
@@ -132,21 +143,32 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       if (!mounted) { timer.cancel(); return; }
       
       setState(() {
-        if (_currentPhase == SessionPhase.prep && !_isUserInFrame) return; 
+        // LOGIC SPLIT: The 5-Second Skeleton Lock
+        if (_currentPhase == SessionPhase.acquisition) {
+          if (_isUserInFrame) {
+            _countdownSeconds--;
+            if (_countdownSeconds <= 0) {
+              timer.cancel();
+              onComplete(); // Successfully locked, move to Prep
+            }
+          } else {
+            _countdownSeconds = 5; // Reset if they step out of frame
+          }
+          return; 
+        }
 
         if (_currentPhase == SessionPhase.active && widget.routine[_currentExerciseIndex].isDuration) {
           _repsOrSecondsRemaining--;
-          AudioService.instance.playTick(); // NEW: Duration Metronome Tick
+          AudioService.instance.playTick(); 
 
           if (_repsOrSecondsRemaining <= 0) {
             timer.cancel();
-            AudioService.instance.playChime(); // NEW: Duration Complete
+            AudioService.instance.playChime(); 
             _completeExercise();
           }
         } else {
           _countdownSeconds--;
           
-          // NEW: Lead-in Beeps Logic
           if ((_currentPhase == SessionPhase.prep || _currentPhase == SessionPhase.rest)) {
             if (_countdownSeconds <= 3 && _countdownSeconds > 0) {
               AudioService.instance.playLeadInBeep();
@@ -181,7 +203,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       }
       setState(() {
         _repsOrSecondsRemaining--;
-        AudioService.instance.playChime(); // NEW: Rep Completed Chime
+        AudioService.instance.playChime(); 
 
         if (_repsOrSecondsRemaining <= 0) {
           timer.cancel(); _completeExercise();
@@ -349,29 +371,31 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   Widget _buildTransitionOverlay() {
     if (_currentPhase == SessionPhase.active || _currentPhase == SessionPhase.finished) return const SizedBox.shrink();
 
+    final isAcquisition = _currentPhase == SessionPhase.acquisition;
     final isPrep = _currentPhase == SessionPhase.prep;
+    
     String nextExerciseName = "";
-    if (isPrep && widget.routine.isNotEmpty) {
+    if ((isAcquisition || isPrep) && widget.routine.isNotEmpty) {
       nextExerciseName = widget.routine[_currentExerciseIndex].name;
     } else if (_currentPhase == SessionPhase.rest && _currentExerciseIndex + 1 < widget.routine.length) {
       nextExerciseName = widget.routine[_currentExerciseIndex + 1].name;
     }
 
-    final displayStatus = isPrep 
+    final displayStatus = isAcquisition 
         ? (_isUserInFrame ? 'LOCK SECURED' : 'TARGET LOST') 
-        : 'REST';
+        : (isPrep ? 'PREPARING' : 'REST');
         
-    final statusColor = isPrep 
+    final statusColor = isAcquisition 
         ? (_isUserInFrame ? mintGreen : neonRed) 
         : mintGreen;
 
     return Container(
-      color: Colors.black.withOpacity(isPrep && !_isUserInFrame ? 0.8 : 0.7),
+      color: Colors.black.withOpacity(isAcquisition && !_isUserInFrame ? 0.8 : 0.7),
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (isPrep)
+            if (isAcquisition)
               AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 margin: const EdgeInsets.only(bottom: 24),
@@ -395,10 +419,13 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
             
             const SizedBox(height: 16),
             
-            if (isPrep && !_isUserInFrame)
+            if (isAcquisition && !_isUserInFrame)
               const Text("STEP BACK\nFULL BODY REQUIRED", 
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold, height: 1.2))
+            else if (isAcquisition && _isUserInFrame)
+              Text("HOLD POSITION: $_countdownSeconds", 
+                style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold))
             else
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 200),
