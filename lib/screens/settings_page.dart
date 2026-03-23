@@ -13,8 +13,12 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   int _prepTime = 10;
   int _restTime = 30;
-  bool _audioCues = true;
   bool _autoRecord = false;
+  
+  // Audio State
+  bool _masterSound = true;
+  bool _leadInBeeps = true;
+  double _volume = 0.5;
 
   @override
   void initState() {
@@ -27,8 +31,11 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _prepTime = prefs.getInt('prep_time') ?? 10;
       _restTime = prefs.getInt('rest_time') ?? 30;
-      _audioCues = prefs.getBool('audio_cues') ?? true;
       _autoRecord = prefs.getBool('auto_record') ?? false;
+      
+      _masterSound = prefs.getBool('master_sound') ?? true;
+      _leadInBeeps = prefs.getBool('leadin_beeps') ?? true;
+      _volume = prefs.getDouble('audio_volume') ?? 0.5;
     });
   }
 
@@ -50,7 +57,6 @@ class _SettingsPageState extends State<SettingsPage> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(key, value);
     setState(() {
-      if (key == 'audio_cues') _audioCues = value;
       if (key == 'auto_record') _autoRecord = value;
     });
   }
@@ -114,8 +120,8 @@ class _SettingsPageState extends State<SettingsPage> {
           
           const SizedBox(height: 24),
 
-          // --- PREFERENCES ---
-          const Text('APP PREFERENCES', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+          // --- AUDIO SETTINGS ---
+          const Text('AUDIO SETTINGS', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Container(
             decoration: BoxDecoration(color: darkSlate, borderRadius: BorderRadius.circular(12)),
@@ -123,12 +129,61 @@ class _SettingsPageState extends State<SettingsPage> {
               children: [
                 SwitchListTile(
                   activeColor: mintGreen,
-                  title: const Text('Audio Cues', style: TextStyle(color: Colors.white)),
-                  subtitle: const Text('Voice feedback for form correction', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  value: _audioCues,
-                  onChanged: (val) => _toggleBool('audio_cues', val),
+                  title: const Text('Master Audio', style: TextStyle(color: Colors.white)),
+                  subtitle: const Text('Enable all app sounds', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  value: _masterSound,
+                  onChanged: (val) async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('master_sound', val);
+                    setState(() => _masterSound = val);
+                  },
                 ),
                 Divider(color: Colors.grey.withOpacity(0.2), height: 1),
+                SwitchListTile(
+                  activeColor: mintGreen,
+                  title: const Text('3-Second Lead-In Beeps', style: TextStyle(color: Colors.white)),
+                  subtitle: const Text('Plays before a set begins', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  value: _leadInBeeps,
+                  onChanged: !_masterSound ? null : (val) async {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('leadin_beeps', val);
+                    setState(() => _leadInBeeps = val);
+                  },
+                ),
+                Divider(color: Colors.grey.withOpacity(0.2), height: 1),
+                ListTile(
+                  enabled: _masterSound,
+                  leading: const Icon(Icons.volume_up, color: mintGreen),
+                  title: const Text('App Volume', style: TextStyle(color: Colors.white)),
+                  subtitle: Slider(
+                    activeColor: mintGreen,
+                    inactiveColor: navyBlue,
+                    value: _volume,
+                    min: 0.0,
+                    max: 1.0,
+                    divisions: 10,
+                    onChanged: !_masterSound ? null : (val) {
+                      setState(() => _volume = val);
+                    },
+                    onChangeEnd: (val) async {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setDouble('audio_volume', val);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // --- APP PREFERENCES ---
+          const Text('APP PREFERENCES', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Container(
+            decoration: BoxDecoration(color: darkSlate, borderRadius: BorderRadius.circular(12)),
+            child: Column(
+              children: [
                 SwitchListTile(
                   activeColor: mintGreen,
                   title: const Text('Auto-Record Sessions', style: TextStyle(color: Colors.white)),

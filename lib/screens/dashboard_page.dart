@@ -42,7 +42,7 @@ class _DashboardPageState extends State<DashboardPage> {
   Widget _buildHeatmapDay(String day, int intensity, bool isDayZero) {
     Color blockColor;
     if (isDayZero) {
-      blockColor = Colors.grey.withOpacity(0.1); // Ghosted look for Day Zero
+      blockColor = Colors.grey.withOpacity(0.1); 
     } else if (intensity == 0) {
       blockColor = navyBlue;
     } else if (intensity == 1) {
@@ -76,21 +76,7 @@ class _DashboardPageState extends State<DashboardPage> {
       appBar: AppBar(
         title: const Text('Statistics'),
         centerTitle: false,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.sync),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Syncing biomechanical data...'), 
-                  backgroundColor: darkSlate,
-                  behavior: SnackBarBehavior.floating, 
-                  margin: EdgeInsets.only(bottom: 80, left: 16, right: 16), 
-                ),
-              );
-            },
-          ),
-        ],
+        // Sync button entirely removed
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -214,8 +200,6 @@ class _DashboardPageState extends State<DashboardPage> {
                         elevation: 8,
                       ),
                       onPressed: () {
-                        // In MainLayout, index 1 is usually the Session Setup/Camera page.
-                        // Instructing the user, or if you have a GlobalKey for the BottomNav, you'd trigger it here.
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text('Tap the Camera icon in the bottom menu to begin.'), 

@@ -9,6 +9,7 @@ import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart';
+import '../services/audio_service.dart'; // NEW: Audio integration
 import 'progress_report_page.dart';
 import 'session_setup_page.dart';
 
@@ -31,7 +32,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   bool _isInitialized = false;
   bool _isProcessing = false;
   bool _isFrontCamera = false;
-  bool _isUserInFrame = false; // NEW: Tracks Skeleton Lock
+  bool _isUserInFrame = false;
 
   InputImageRotation _rotation = InputImageRotation.rotation0deg;
   final ValueNotifier<PoseOverlayData?> _overlayNotifier = ValueNotifier<PoseOverlayData?>(null);
@@ -74,6 +75,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
   Future<void> _loadSettingsAndStart() async {
     final prefs = await SharedPreferences.getInstance();
+    await AudioService.instance.loadSettings(); // NEW: Load audio preferences
+
     setState(() {
       _prepTimeSetting = prefs.getInt('prep_time') ?? 10;
       _restTimeSetting = prefs.getInt('rest_time') ?? 30;
@@ -129,19 +132,29 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       if (!mounted) { timer.cancel(); return; }
       
       setState(() {
-        // NEW: Skeleton Lock. Freeze prep timer if user is not fully in frame.
-        if (_currentPhase == SessionPhase.prep && !_isUserInFrame) {
-          return; 
-        }
+        if (_currentPhase == SessionPhase.prep && !_isUserInFrame) return; 
 
         if (_currentPhase == SessionPhase.active && widget.routine[_currentExerciseIndex].isDuration) {
           _repsOrSecondsRemaining--;
+          AudioService.instance.playTick(); // NEW: Duration Metronome Tick
+
           if (_repsOrSecondsRemaining <= 0) {
             timer.cancel();
+            AudioService.instance.playChime(); // NEW: Duration Complete
             _completeExercise();
           }
         } else {
           _countdownSeconds--;
+          
+          // NEW: Lead-in Beeps Logic
+          if ((_currentPhase == SessionPhase.prep || _currentPhase == SessionPhase.rest)) {
+            if (_countdownSeconds <= 3 && _countdownSeconds > 0) {
+              AudioService.instance.playLeadInBeep();
+            } else if (_countdownSeconds == 0) {
+              AudioService.instance.playGoBeep();
+            }
+          }
+
           if (_countdownSeconds <= 0) {
             timer.cancel();
             onComplete();
@@ -168,6 +181,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       }
       setState(() {
         _repsOrSecondsRemaining--;
+        AudioService.instance.playChime(); // NEW: Rep Completed Chime
+
         if (_repsOrSecondsRemaining <= 0) {
           timer.cancel(); _completeExercise();
         } else if (_repsOrSecondsRemaining % 3 == 0) {
@@ -250,7 +265,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       final poses = await _poseDetector.processImage(inputImage);
       if (!mounted) return;
 
-      // NEW: Target Acquisition Logic
       bool targetLocked = false;
       if (poses.isNotEmpty) {
         final landmarks = poses.first.landmarks;
@@ -258,7 +272,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         final leftAnkle = landmarks[PoseLandmarkType.leftAnkle];
         final rightAnkle = landmarks[PoseLandmarkType.rightAnkle];
 
-        // Ensure head and feet are visible with reasonable confidence
         if (nose != null && leftAnkle != null && rightAnkle != null) {
           if (nose.likelihood > 0.6 && (leftAnkle.likelihood > 0.6 || rightAnkle.likelihood > 0.6)) {
             targetLocked = true;
@@ -344,7 +357,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       nextExerciseName = widget.routine[_currentExerciseIndex + 1].name;
     }
 
-    // NEW: Dynamic UI based on Skeleton Lock
     final displayStatus = isPrep 
         ? (_isUserInFrame ? 'LOCK SECURED' : 'TARGET LOST') 
         : 'REST';
@@ -359,7 +371,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Framing Bracket Visuals
             if (isPrep)
               AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
@@ -437,7 +448,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // 1. Camera & Skeleton Layer
                 Transform.scale(
                   scale: scale,
                   child: Center(
@@ -471,10 +481,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
                   ),
                 ),
 
-                // 2. Prep / Rest Overlay
                 _buildTransitionOverlay(),
 
-                // 3. UI: Top Stack
                 SafeArea(
                   child: Padding(
                     padding: const EdgeInsets.only(top: 16.0),
@@ -525,7 +533,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
                   ),
                 ),
 
-                // 4. UI: Dynamic Position Rep Counter
                 if (_currentPhase == SessionPhase.active && currentExercise != null)
                   Positioned(
                     bottom: isPortrait ? 40 : null,
