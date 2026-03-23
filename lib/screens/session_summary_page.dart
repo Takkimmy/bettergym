@@ -5,18 +5,17 @@ import 'main_layout.dart';
 import 'progress_report_page.dart';
 
 class SessionSummaryPage extends StatefulWidget {
-  
-  // We can pass real data here later when the ML math is done.
-  // For now, these are placeholders for the UI.
   final int totalReps;
   final int durationMinutes;
   final int formWarnings;
+  final bool isCompleted; // NEW: Tracks if they finished or quit
 
   const SessionSummaryPage({
     super.key, 
     this.totalReps = 142,
     this.durationMinutes = 45,
     this.formWarnings = 3,
+    this.isCompleted = true, // Defaults to true
   });
 
   @override
@@ -35,7 +34,6 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> with SingleTick
       duration: const Duration(milliseconds: 1200)
     );
     
-    // Delays the button appearance so the user focuses on the checkmark first
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _animController, curve: const Interval(0.5, 1.0, curve: Curves.easeIn))
     );
@@ -71,6 +69,12 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> with SingleTick
 
   @override
   Widget build(BuildContext context) {
+    // NEW: Dynamic UI mapping based on completion status
+    final Color themeColor = widget.isCompleted ? mintGreen : Colors.orange;
+    final IconData heroIcon = widget.isCompleted ? Icons.check_rounded : Icons.stop_rounded;
+    final String titleText = widget.isCompleted ? 'SESSION COMPLETE' : 'SESSION ABORTED';
+    final String subText = widget.isCompleted ? 'Biomechanical data successfully logged.' : 'Partial session data saved to history.';
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -82,7 +86,6 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> with SingleTick
             children: [
               const Spacer(),
               
-              // --- HERO SECTION ---
               TweenAnimationBuilder(
                 tween: Tween<double>(begin: 0.5, end: 1.0),
                 duration: const Duration(milliseconds: 800),
@@ -97,37 +100,36 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> with SingleTick
                   width: 120,
                   height: 120,
                   decoration: BoxDecoration(
-                    color: mintGreen.withOpacity(0.1),
+                    color: themeColor.withOpacity(0.1),
                     shape: BoxShape.circle,
-                    border: Border.all(color: mintGreen, width: 4),
+                    border: Border.all(color: themeColor, width: 4),
                     boxShadow: [
-                      BoxShadow(color: mintGreen.withOpacity(0.3), blurRadius: 30, spreadRadius: 5),
+                      BoxShadow(color: themeColor.withOpacity(0.3), blurRadius: 30, spreadRadius: 5),
                     ]
                   ),
-                  child: const Icon(Icons.check_rounded, color: mintGreen, size: 80),
+                  child: Icon(heroIcon, color: themeColor, size: 64),
                 ),
               ),
               
               const SizedBox(height: 32),
               
-              const Text(
-                'SESSION COMPLETE',
+              Text(
+                titleText,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 3.0),
+                style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 3.0),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Biomechanical data successfully logged.',
+              Text(
+                subText,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 14),
+                style: const TextStyle(color: Colors.grey, fontSize: 14),
               ),
               
               const SizedBox(height: 48),
 
-              // --- STATS GRID ---
               Row(
                 children: [
-                  Expanded(child: _buildStatBox('TOTAL REPS', widget.totalReps.toString(), Icons.fitness_center, mintGreen)),
+                  Expanded(child: _buildStatBox('TOTAL REPS', widget.totalReps.toString(), Icons.fitness_center, themeColor)),
                   const SizedBox(width: 16),
                   Expanded(child: _buildStatBox('MINUTES', widget.durationMinutes.toString(), Icons.timer, Colors.blueAccent)),
                 ],
@@ -137,7 +139,6 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> with SingleTick
 
               const Spacer(),
 
-              // --- ACTIONS ---
               FadeTransition(
                 opacity: _fadeAnimation,
                 child: Column(
@@ -145,7 +146,7 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> with SingleTick
                   children: [
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: mintGreen,
+                        backgroundColor: themeColor,
                         foregroundColor: navyBlue,
                         minimumSize: const Size.fromHeight(56),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -153,7 +154,7 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> with SingleTick
                       onPressed: () {
                         Navigator.pushReplacement(
                           context,
-                          MaterialPageRoute(builder: (_) => ProgressReportPage()),
+                          MaterialPageRoute(builder: (_) => const ProgressReportPage()),
                         );
                       },
                       child: const Text('VIEW DETAILED REPORT', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
@@ -167,10 +168,9 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> with SingleTick
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
                       onPressed: () {
-                        // Flushes the route stack and returns to the Dashboard
                         Navigator.pushAndRemoveUntil(
                           context,
-                          MaterialPageRoute(builder: (_) => MainLayout()),
+                          MaterialPageRoute(builder: (_) => const MainLayout()),
                           (route) => false,
                         );
                       },

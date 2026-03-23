@@ -8,20 +8,20 @@ import 'package:flutter/services.dart';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:permission_handler/permission_handler.dart'; 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../main.dart';
 import '../services/audio_service.dart'; 
-import '../services/hardware_service.dart'; // NEW: Hardware injection
-import 'progress_report_page.dart';
+import '../services/hardware_service.dart'; 
 import 'session_setup_page.dart';
 import 'session_summary_page.dart';
 
-enum SessionPhase { acquisition, prep, active, rest, finished }
+enum SessionPhase { acquisition, prep, active, rest, paused, finished }
 
 class PoseCameraPage extends StatefulWidget {
   final List<WorkoutSet> routine;
 
-  const PoseCameraPage({super.key, required this.routine}); // CLEANED
+  const PoseCameraPage({super.key, required this.routine});
 
   @override
   State<PoseCameraPage> createState() => _PoseCameraPageState();
@@ -45,8 +45,9 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   static const int _processIntervalMs = 30;
 
   SessionPhase _currentPhase = SessionPhase.acquisition;
+  SessionPhase? _previousPhase; 
+  
   int _currentExerciseIndex = 0;
-
   int _prepTimeSetting = 10;
   int _restTimeSetting = 30;
   int _countdownSeconds = 0;
@@ -112,6 +113,45 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     }
   }
 
+  void _pauseSession() {
+    if (_currentPhase == SessionPhase.paused || _currentPhase == SessionPhase.finished) return;
+
+    _phaseTimer?.cancel();
+    _toastTimer?.cancel();
+    _exitTimer?.cancel();
+
+    setState(() {
+      _previousPhase = _currentPhase;
+      _currentPhase = SessionPhase.paused;
+    });
+  }
+
+  void _resumeSession() {
+    if (_currentPhase != SessionPhase.paused || _previousPhase == null) return;
+
+    setState(() {
+      _currentPhase = _previousPhase!;
+      _previousPhase = null;
+    });
+
+    if (_currentPhase == SessionPhase.acquisition) {
+      _runCountdown(() => _startPrepPhase());
+    } else if (_currentPhase == SessionPhase.prep) {
+      _runCountdown(() => _startActivePhase());
+    } else if (_currentPhase == SessionPhase.rest) {
+      _runCountdown(() {
+        setState(() => _currentExerciseIndex++);
+        _startActivePhase();
+      });
+    } else if (_currentPhase == SessionPhase.active) {
+      if (widget.routine[_currentExerciseIndex].isDuration) {
+        _runCountdown(() => _completeExercise());
+      } else {
+        _simulateRepDetection();
+      }
+    }
+  }
+
   void _startAcquisitionPhase() {
     setState(() {
       _currentPhase = SessionPhase.acquisition;
@@ -161,7 +201,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   void _runCountdown(VoidCallback onComplete) {
     _phaseTimer?.cancel();
     _phaseTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) { timer.cancel(); return; }
+      if (!mounted || _currentPhase == SessionPhase.paused) { timer.cancel(); return; }
       
       setState(() {
         if (_currentPhase == SessionPhase.acquisition) {
@@ -211,7 +251,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       _startRestPhase();
     } else {
       setState(() => _currentPhase = SessionPhase.finished);
-      _exitSession();
+      _exitSession(isCompleted: true); // THEY ACTUALLY FINISHED
     }
   }
 
@@ -221,6 +261,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       if (!mounted || _currentPhase != SessionPhase.active || widget.routine[_currentExerciseIndex].isDuration) {
         timer.cancel(); return;
       }
+      if (_currentPhase == SessionPhase.paused) return;
+
       setState(() {
         _repsOrSecondsRemaining--;
         AudioService.instance.playChime(); 
@@ -250,6 +292,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   }
 
   void _handleTapDown(TapDownDetails details) {
+    if (_currentPhase == SessionPhase.paused) return; 
     _exitCountdown = 4;
     _triggerToast("Hold for $_exitCountdown seconds to end session", -1);
     _exitTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -274,7 +317,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
   Future<void> _initCamera() async {
     try {
-      // NEW: Pull cameras directly from the global HardwareService
       final availableCams = HardwareService.instance.cameras;
       if (availableCams.isEmpty) throw Exception('No cameras found.');
 
@@ -288,6 +330,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       await controller.initialize();
       _rotation = InputImageRotationValue.fromRawValue(camera.sensorOrientation) ?? InputImageRotation.rotation0deg;
       await controller.startImageStream(_processCameraImage);
+      
+      WakelockPlus.enable(); 
 
       if (!mounted) return;
       setState(() {
@@ -301,7 +345,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
   Future<void> _processCameraImage(CameraImage image) async {
     final now = DateTime.now();
-    if (_isProcessing || now.difference(_lastProcessed).inMilliseconds < _processIntervalMs) return;
+    if (_isProcessing || _currentPhase == SessionPhase.paused || now.difference(_lastProcessed).inMilliseconds < _processIntervalMs) return;
+    
     _isProcessing = true;
     _lastProcessed = now;
 
@@ -365,15 +410,17 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     return allBytes.done().buffer.asUint8List();
   }
 
-  void _exitSession() {
+  void _exitSession({bool isCompleted = false}) {
     _phaseTimer?.cancel();
     _toastTimer?.cancel();
     _exitTimer?.cancel();
+    
+    WakelockPlus.disable(); 
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     
     Navigator.pushReplacement(
       context, 
-      MaterialPageRoute(builder: (_) => const SessionSummaryPage()) // CLEANED
+      MaterialPageRoute(builder: (_) => SessionSummaryPage(isCompleted: isCompleted)) // PASS FLAG HERE
     );
   }
 
@@ -382,6 +429,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     _phaseTimer?.cancel();
     _toastTimer?.cancel();
     _exitTimer?.cancel();
+    
+    WakelockPlus.disable(); 
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     WidgetsBinding.instance.removeObserver(this);
     _cameraController?.dispose();
@@ -398,6 +447,39 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
   Widget _buildTransitionOverlay() {
     if (_currentPhase == SessionPhase.active || _currentPhase == SessionPhase.finished) return const SizedBox.shrink();
+
+    if (_currentPhase == SessionPhase.paused) {
+      return Container(
+        color: Colors.black.withOpacity(0.85),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.pause_circle_outline, color: mintGreen, size: 80),
+              const SizedBox(height: 16),
+              const Text("SESSION PAUSED", style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 4.0)),
+              const SizedBox(height: 48),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: mintGreen,
+                  foregroundColor: navyBlue,
+                  padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                ),
+                icon: const Icon(Icons.play_arrow, size: 28),
+                label: const Text("RESUME", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2.0)),
+                onPressed: _resumeSession,
+              ),
+              const SizedBox(height: 32),
+              TextButton(
+                onPressed: () => _exitSession(isCompleted: false), // THEY QUIT EARLY
+                child: const Text("END SESSION EARLY", style: TextStyle(color: neonRed, fontSize: 14, letterSpacing: 1.5)),
+            )
+            ],
+          ),
+        ),
+      );
+    }
 
     final isAcquisition = _currentPhase == SessionPhase.acquisition;
     final isPrep = _currentPhase == SessionPhase.prep;
@@ -498,7 +580,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
             icon: const Icon(Icons.close, color: Colors.white), 
             onPressed: () {
               SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-              Navigator.pop(context); // Fallback to setup screen
+              Navigator.pop(context); 
             }
           )
         ),
@@ -530,7 +612,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                   onPressed: () {
-                    openAppSettings(); // Jumps user directly to phone settings
+                    openAppSettings(); 
                   },
                   child: const Text('OPEN SYSTEM SETTINGS', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
                 ),
@@ -557,6 +639,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
           backgroundColor: Colors.black,
           body: GestureDetector(
             behavior: HitTestBehavior.opaque,
+            // UPDATED: Removed the "onTap" pause trigger completely. 
             onTapDown: _handleTapDown,
             onTapUp: (_) => _handleTapCancel(),
             onTapCancel: _handleTapCancel,
@@ -575,7 +658,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
                           ValueListenableBuilder<PoseOverlayData?>(
                             valueListenable: _overlayNotifier,
                             builder: (context, overlay, child) {
-                              if (overlay == null) return const SizedBox.shrink();
+                              if (overlay == null || _currentPhase == SessionPhase.paused) return const SizedBox.shrink();
                               return RepaintBoundary(
                                 child: CustomPaint(
                                   painter: PosePainter(
@@ -598,57 +681,81 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
                 _buildTransitionOverlay(),
 
-                SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 16.0),
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_currentPhase == SessionPhase.active && currentExercise != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                              decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(20)),
-                              child: Text(
-                                currentExercise.name.toUpperCase(),
-                                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2.0),
+                if (_currentPhase != SessionPhase.paused)
+                  SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 16.0),
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_currentPhase == SessionPhase.active && currentExercise != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                                decoration: BoxDecoration(color: Colors.black.withOpacity(0.6), borderRadius: BorderRadius.circular(20)),
+                                child: Text(
+                                  currentExercise.name.toUpperCase(),
+                                  style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2.0),
+                                ),
+                              ),
+                            const SizedBox(height: 12),
+                            AnimatedOpacity(
+                              opacity: _showToast ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 300),
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 20),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: darkSlate.withOpacity(0.9),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                      color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.transparent),
+                                      width: 2),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _formState == -1 ? Icons.warning_amber_rounded : (_formState == 1 ? Icons.check_circle : Icons.info_outline),
+                                      color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.white),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Flexible(child: Text(_feedbackMessage, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                                  ],
+                                ),
                               ),
                             ),
-                          const SizedBox(height: 12),
-                          AnimatedOpacity(
-                            opacity: _showToast ? 1.0 : 0.0,
-                            duration: const Duration(milliseconds: 300),
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 20),
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                              decoration: BoxDecoration(
-                                color: darkSlate.withOpacity(0.9),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                    color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.transparent),
-                                    width: 2),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    _formState == -1 ? Icons.warning_amber_rounded : (_formState == 1 ? Icons.check_circle : Icons.info_outline),
-                                    color: _formState == -1 ? neonRed : (_formState == 1 ? mintGreen : Colors.white),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Flexible(child: Text(_feedbackMessage, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
 
-                if (_currentPhase == SessionPhase.active && currentExercise != null)
+                // NEW: Dedicated Pause Button
+                if (_currentPhase != SessionPhase.paused && _currentPhase != SessionPhase.acquisition)
+                  Positioned(
+                    top: isPortrait ? 60 : 20,
+                    right: 20,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _pauseSession,
+                        borderRadius: BorderRadius.circular(30),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.6),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: mintGreen.withOpacity(0.5), width: 2),
+                          ),
+                          child: const Icon(Icons.pause, color: mintGreen, size: 28),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                if (_currentPhase == SessionPhase.active && currentExercise != null && _currentPhase != SessionPhase.paused)
                   Positioned(
                     bottom: isPortrait ? 40 : null,
                     top: isPortrait ? null : MediaQuery.of(context).size.height / 2 - 90,
