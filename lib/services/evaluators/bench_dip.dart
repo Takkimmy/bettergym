@@ -72,6 +72,11 @@ class BenchDipEvaluator extends BaseEvaluator {
       amnesiaConditionMet: elbowAngle >= 150.0
     );
 
+    // --- START THE STOPWATCH ---
+    if (elbowAngle < 150.0 && repMovementStartTime == null) {
+      repMovementStartTime = DateTime.now();
+    }
+
     bool goodRep = false;
     bool badRep = false;
     String repFeedback = "";
@@ -82,7 +87,19 @@ class BenchDipEvaluator extends BaseEvaluator {
         isDown = false; 
         lowestElbowAngle = 180.0; 
         
-        if (hasFormBrokenThisRep) {
+        // --- CHECK THE SPEED LIMIT ---
+        bool isRushed = false;
+        if (repMovementStartTime != null) {
+          final durationMs = DateTime.now().difference(repMovementStartTime!).inMilliseconds;
+          if (durationMs < 1500) isRushed = true; 
+        }
+        repMovementStartTime = null; 
+        
+        if (isRushed) {
+          badRep = true; 
+          repFeedback = "Too fast! Control the rep.";
+          AudioService.instance.speakCorrection(["Slow down. Don't rush.", "Control the weight. Too fast."]);
+        } else if (hasFormBrokenThisRep) {
           badRep = true; 
           repFeedback = "Rep invalid. Watch your form!";
         } else {

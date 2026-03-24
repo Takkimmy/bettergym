@@ -21,6 +21,9 @@ abstract class BaseEvaluator {
   Set<PoseLandmarkType> publishedFaultyJoints = {};
   double smoothedFormScore = 1.0; 
 
+  // NEW: The Time Under Tension Stopwatch
+  DateTime? repMovementStartTime; 
+
   void reset() {
     isDown = false;
     hasFormBrokenThisRep = false;
@@ -31,6 +34,7 @@ abstract class BaseEvaluator {
     publishedFormError = "";
     publishedFaultyJoints = {};
     smoothedFormScore = 1.0;
+    repMovementStartTime = null; // Reset the stopwatch
   }
 
   double calculateAngle(PoseLandmark first, PoseLandmark middle, PoseLandmark last) {
