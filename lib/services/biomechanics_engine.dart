@@ -5,12 +5,28 @@ class BiomechanicsEngine {
   static final BiomechanicsEngine instance = BiomechanicsEngine._internal();
   BiomechanicsEngine._internal();
 
+  // --- REP & DEBOUNCE STATE ---
   bool _isDown = false;
   bool _hasFormBrokenThisRep = false;
+  
+  int _consecutiveBadFrames = 0;
+  int _consecutiveGoodFrames = 0;
+  static const int _debounceThreshold = 8; // Requires ~250ms of sustained failure to trigger
+
+  int _publishedFormState = 1;
+  String _publishedFormError = "";
+  Set<PoseLandmarkType> _publishedFaultyJoints = {};
+  double _smoothedFormScore = 1.0; // The Low-Pass Filter state
 
   void reset() {
     _isDown = false;
     _hasFormBrokenThisRep = false;
+    _consecutiveBadFrames = 0;
+    _consecutiveGoodFrames = 0;
+    _publishedFormState = 1;
+    _publishedFormError = "";
+    _publishedFaultyJoints = {};
+    _smoothedFormScore = 1.0;
   }
 
   double _calculateAngle(PoseLandmark first, PoseLandmark middle, PoseLandmark last) {
@@ -28,7 +44,7 @@ class BiomechanicsEngine {
     Map<String, dynamic> result = {
       'goodRepTriggered': false, 
       'badRepTriggered': false,  
-      'formState': 0,
+      'formState': 1,
       'feedback': "Position yourself in frame.",
       'activeJoints': <PoseLandmarkType>{},
       'faultyJoints': <PoseLandmarkType>{}, 
@@ -83,20 +99,12 @@ class BiomechanicsEngine {
       return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
 
-    // --- PERSPECTIVE LOCK: Enforce Side Profile ---
+    // --- PERSPECTIVE LOCK ---
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
 
     if (shoulderWidth > torsoLength * 0.6) {
-      return {
-        'goodRepTriggered': false, 
-        'badRepTriggered': false, 
-        'formState': 0, 
-        'feedback': "Turn sideways! Front view is not supported.", 
-        'activeJoints': activeJoints, 
-        'faultyJoints': <PoseLandmarkType>{}, 
-        'formScore': 0.0
-      };
+      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Turn sideways! Front view is not supported.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
 
     // 1. The 4-Point Kinetic Chain
@@ -105,71 +113,91 @@ class BiomechanicsEngine {
     final elbowAngle = _calculateAngle(shoulder, elbow, wrist); 
     final shoulderAngle = _calculateAngle(hip, shoulder, elbow); 
 
-    // 2. Strict Continuous Math
+    // 2. Thermometer Smoothing (Low-Pass Filter)
     double coreScore = ((hipHingeAngle - 155.0) / 20.0).clamp(0.0, 1.0);
     double kneeScore = ((kneeFlexionAngle - 155.0) / 20.0).clamp(0.0, 1.0);
     double handScore = ((105.0 - shoulderAngle) / 20.0).clamp(0.0, 1.0);
+    double rawFormScore = math.min(coreScore, math.min(kneeScore, handScore));
     
-    double formScore = math.min(coreScore, math.min(kneeScore, handScore));
+    _smoothedFormScore = (_smoothedFormScore * 0.8) + (rawFormScore * 0.2);
 
-    // 3. Strict Heuristic Enforcement & Limb Specific Coloring
-    Set<PoseLandmarkType> faultyJoints = {};
-    int formState = 1; 
-    String feedback = "Good posture. Lower to 90 degrees.";
+    // 3. Raw Heuristic Checks
+    int rawFormState = 1; 
+    String rawFormError = "";
+    Set<PoseLandmarkType> rawFaultyJoints = {};
 
     if (kneeFlexionAngle < 160.0) {
-      formState = -1;
-      feedback = "Straighten your legs! Knees are bent.";
-      faultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle]);
+      rawFormState = -1;
+      rawFormError = "Straighten your legs! Knees are bent.";
+      rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle]);
     } else if (hipHingeAngle < 160.0) {
-      formState = -1;
-      feedback = "Keep your spine rigid! Hips are sagging.";
-      faultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee]);
+      rawFormState = -1;
+      rawFormError = "Keep your spine rigid! Hips are sagging.";
+      rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee]);
     } else if (shoulderAngle > 100.0) {
-      formState = -1;
-      feedback = "Hands too far forward. Stack wrists under shoulders.";
-      faultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
+      rawFormState = -1;
+      rawFormError = "Hands too far forward. Stack wrists under shoulders.";
+      rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
     }
 
-    if (formState == -1) {
-      _hasFormBrokenThisRep = true;
+    // --- DEBOUNCE LOGIC ---
+    if (rawFormState == -1) {
+      _consecutiveBadFrames++;
+      _consecutiveGoodFrames = 0;
+      if (_consecutiveBadFrames >= _debounceThreshold) {
+        _publishedFormState = -1;
+        _publishedFormError = rawFormError;
+        _publishedFaultyJoints = Set.from(rawFaultyJoints);
+        _hasFormBrokenThisRep = true; // Officially taints the rep
+      }
+    } else {
+      _consecutiveGoodFrames++;
+      _consecutiveBadFrames = 0;
+      if (_consecutiveGoodFrames >= _debounceThreshold) {
+        _publishedFormState = 1;
+        _publishedFormError = "";
+        _publishedFaultyJoints = {};
+      }
     }
 
-    // 4. Strict Rep Logic
+    // 4. Rep Logic
     bool goodRep = false;
     bool badRep = false;
+    String repFeedback = "";
 
     if (_isDown) {
-      feedback = formState == -1 ? feedback : "Push up!";
+      repFeedback = "Push up!";
       if (elbowAngle >= 160.0) {
         _isDown = false; 
-        
         if (_hasFormBrokenThisRep) {
           badRep = true; 
-          feedback = "Rep invalid. Fix your form!";
+          repFeedback = "Rep invalid. Fix your form!";
         } else {
           goodRep = true; 
-          feedback = "Perfect rep!";
+          repFeedback = "Perfect rep!";
         }
         _hasFormBrokenThisRep = false; 
       }
     } else {
       if (elbowAngle <= 90.0) {
         _isDown = true; 
-        feedback = formState == -1 ? feedback : "Depth reached. Push!";
+        repFeedback = "Depth reached. Push!";
       } else {
-        feedback = formState == -1 ? feedback : "Lower... hit 90 degrees.";
+        repFeedback = "Lower... hit 90 degrees.";
       }
     }
+
+    // Feedback Priority: Form Errors override Rep Instructions
+    String finalFeedback = _publishedFormState == -1 ? _publishedFormError : repFeedback;
 
     return {
       'goodRepTriggered': goodRep,
       'badRepTriggered': badRep,
-      'formState': formState,
-      'feedback': feedback,
+      'formState': _publishedFormState,
+      'feedback': finalFeedback,
       'activeJoints': activeJoints,
-      'faultyJoints': faultyJoints, 
-      'formScore': formScore,       
+      'faultyJoints': _publishedFaultyJoints, 
+      'formScore': _smoothedFormScore,       
     };
   }
 
@@ -199,75 +227,86 @@ class BiomechanicsEngine {
       return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
 
-    // --- PERSPECTIVE LOCK: Enforce Side Profile ---
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
 
     if (shoulderWidth > torsoLength * 0.6) {
-      return {
-        'goodRepTriggered': false, 
-        'badRepTriggered': false, 
-        'formState': 0, 
-        'feedback': "Turn sideways! Front view is not supported.", 
-        'activeJoints': activeJoints, 
-        'faultyJoints': <PoseLandmarkType>{}, 
-        'formScore': 0.0
-      };
+      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Turn sideways! Front view is not supported.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
 
     final elbowAngle = _calculateAngle(shoulder, elbow, wrist);
     final shoulderSwingAngle = _calculateAngle(hip, shoulder, elbow);
 
-    double formScore = ((35.0 - shoulderSwingAngle) / 20.0).clamp(0.0, 1.0);
+    // Thermometer Smoothing
+    double rawFormScore = ((35.0 - shoulderSwingAngle) / 20.0).clamp(0.0, 1.0);
+    _smoothedFormScore = (_smoothedFormScore * 0.8) + (rawFormScore * 0.2);
 
-    Set<PoseLandmarkType> faultyJoints = {};
-    int formState = 1; 
-    String feedback = "Good posture.";
+    int rawFormState = 1; 
+    String rawFormError = "";
+    Set<PoseLandmarkType> rawFaultyJoints = {};
 
     if (shoulderSwingAngle > 35.0) {
-      formState = -1;
-      feedback = "Keep elbows tucked! Stop swinging.";
-      faultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
+      rawFormState = -1;
+      rawFormError = "Keep elbows tucked! Stop swinging.";
+      rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
     }
 
-    if (formState == -1) {
-      _hasFormBrokenThisRep = true;
+    // --- DEBOUNCE LOGIC ---
+    if (rawFormState == -1) {
+      _consecutiveBadFrames++;
+      _consecutiveGoodFrames = 0;
+      if (_consecutiveBadFrames >= _debounceThreshold) {
+        _publishedFormState = -1;
+        _publishedFormError = rawFormError;
+        _publishedFaultyJoints = Set.from(rawFaultyJoints);
+        _hasFormBrokenThisRep = true; 
+      }
+    } else {
+      _consecutiveGoodFrames++;
+      _consecutiveBadFrames = 0;
+      if (_consecutiveGoodFrames >= _debounceThreshold) {
+        _publishedFormState = 1;
+        _publishedFormError = "";
+        _publishedFaultyJoints = {};
+      }
     }
 
     bool goodRep = false;
     bool badRep = false;
+    String repFeedback = "";
 
     if (_isDown) {
-      feedback = formState == -1 ? feedback : "Curl it up!";
+      repFeedback = "Curl it up!";
       if (elbowAngle < 50.0) {
         _isDown = false; 
-        
         if (_hasFormBrokenThisRep) {
           badRep = true;
-          feedback = "Rep invalid. Stop swinging!";
+          repFeedback = "Rep invalid. Stop swinging!";
         } else {
           goodRep = true;
-          feedback = "Good squeeze!";
+          repFeedback = "Good squeeze!";
         }
         _hasFormBrokenThisRep = false;
       }
     } else {
       if (elbowAngle > 150.0) {
         _isDown = true; 
-        feedback = formState == -1 ? feedback : "Fully extended. Curl!";
+        repFeedback = "Fully extended. Curl!";
       } else {
-        feedback = formState == -1 ? feedback : "Lower the weight fully.";
+        repFeedback = "Lower the weight fully.";
       }
     }
+
+    String finalFeedback = _publishedFormState == -1 ? _publishedFormError : repFeedback;
 
     return {
       'goodRepTriggered': goodRep,
       'badRepTriggered': badRep,
-      'formState': formState,
-      'feedback': feedback,
+      'formState': _publishedFormState,
+      'feedback': finalFeedback,
       'activeJoints': activeJoints,
-      'faultyJoints': faultyJoints,
-      'formScore': formScore,
+      'faultyJoints': _publishedFaultyJoints,
+      'formScore': _smoothedFormScore,
     };
   }
 }
