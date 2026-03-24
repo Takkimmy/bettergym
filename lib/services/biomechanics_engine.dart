@@ -107,7 +107,7 @@ class BiomechanicsEngine {
     if (shoulderWidth > torsoLength * 0.6) {
       return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Turn sideways! Front view is not supported.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
-    
+
     // --- ENGAGEMENT LOCK: Must be horizontal ---
     // Calculate the X (width) and Y (height) spread of the torso
     final torsoDx = (shoulder.x - hip.x).abs();
@@ -145,12 +145,18 @@ class BiomechanicsEngine {
     String rawFormError = "";
     Set<PoseLandmarkType> rawFaultyJoints = {};
 
+    // --- SAGGING VS PIKING MATH ---
+    // Calculate the expected Y position of the hip if the body were perfectly straight
+    double expectedHipY = shoulder.y + (hip.x - shoulder.x) * ((knee.y - shoulder.y) / (knee.x - shoulder.x == 0 ? 0.001 : knee.x - shoulder.x));
+    
+    // In Flutter, +Y is downward. If actual hip Y is greater, it's sagging toward the floor.
+    bool isSagging = hip.y > expectedHipY;
+
     if (kneeFlexionAngle < 160.0) {
       rawFormState = -1;
       rawFormError = "Knees bent.";
       rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle]);
       
-      // TRIGGER TTS
       AudioService.instance.speakCorrection([
         "Knees are bent, straighten your legs.",
         "Keep your legs completely straight.",
@@ -159,27 +165,40 @@ class BiomechanicsEngine {
 
     } else if (hipHingeAngle < 160.0) {
       rawFormState = -1;
-      rawFormError = "Hips sagging.";
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee]);
       
-      // TRIGGER TTS
-      AudioService.instance.speakCorrection([
-        "Hips are dropping. Squeeze your core.",
-        "Keep your back straight. Don't let your hips sag.",
-        "Tighten your core. Your hips are falling."
-      ]);
+      if (isSagging) {
+        rawFormError = "Hips sagging.";
+        AudioService.instance.speakCorrection([
+          "Hips are dropping. Squeeze your core.",
+          "Keep your back straight. Don't let your hips sag.",
+          "Tighten your core. Your hips are falling."
+        ]);
+      } else {
+        rawFormError = "Butt too high.";
+        AudioService.instance.speakCorrection([
+          "Lower your hips. Your butt is too high.",
+          "Bring your hips down into a straight plank.",
+          "Flatten your back. Hips are too high."
+        ]);
+      }
 
     } else if (shoulderAngle > 100.0) {
       rawFormState = -1;
       rawFormError = "Hands too far forward.";
       rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
       
-      // TRIGGER TTS
       AudioService.instance.speakCorrection([
         "Move your hands back. They should be under your shoulders.",
-        "Your hands are too far forward. Bring them closer to your chest.",
+        "Your hands are too far forward. Bring them back.",
         "Stack your wrists directly under your shoulders."
       ]);
+    }
+
+    // --- THE AMNESIA PROTOCOL (Rep Taint Reset) ---
+    // If they are locked out at the top AND their form is currently perfect, wipe the slate clean.
+    if (elbowAngle >= 150.0 && rawFormState == 1) {
+      _hasFormBrokenThisRep = false; 
     }
 
     // --- DEBOUNCE LOGIC ---
@@ -190,7 +209,11 @@ class BiomechanicsEngine {
         _publishedFormState = -1;
         _publishedFormError = rawFormError;
         _publishedFaultyJoints = Set.from(rawFaultyJoints);
-        _hasFormBrokenThisRep = true; // Officially taints the rep
+        
+        // Officially taint the rep, but only if they are actually starting to lower themselves or are down
+        if (elbowAngle < 150.0 || _isDown) {
+          _hasFormBrokenThisRep = true; 
+        }
       }
     } else {
       _consecutiveGoodFrames++;

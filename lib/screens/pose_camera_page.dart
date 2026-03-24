@@ -170,43 +170,44 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
 void _startPrepPhase() {
     final currentExerciseName = widget.routine.isNotEmpty ? widget.routine[_currentExerciseIndex].name : "the exercise";
-    
     setState(() {
       _currentPhase = SessionPhase.prep;
       _countdownSeconds = _prepTimeSetting;
     });
-    
     _triggerToast("Get Ready.", 0);
     
-    // Dynamic Prep Audio based on time available
     if (_prepTimeSetting >= 20) {
       AudioService.instance.speakPriority([
         "Prepare for $currentExerciseName. Take your time to breathe or grab some water.",
         "Next up, $currentExerciseName. You have plenty of time to get into position.",
+        "Get ready for $currentExerciseName. You can set your phone down horizontally if you prefer.",
+        "Take a breath. We are doing $currentExerciseName next."
       ]);
     } else {
       AudioService.instance.speakPriority([
         "Prepare for $currentExerciseName.",
         "Get ready for $currentExerciseName.",
+        "Next exercise is $currentExerciseName.",
+        "Let's move to $currentExerciseName."
       ]);
     }
-
     _runCountdown(() => _startActivePhase());
   }
 
-void _startRestPhase() {
+  void _startRestPhase() {
     BiomechanicsEngine.instance.reset();
     setState(() {
       _currentPhase = SessionPhase.rest;
       _countdownSeconds = _restTimeSetting;
     });
-    
     _triggerToast("Rest.", 0);
     
     AudioService.instance.speakPriority([
-      "Set complete. Rest.",
-      "Great job. Take a breather.",
-      "Take a moment to recover."
+      "Set complete. Take a breather.",
+      "Great work. Rest and recover.",
+      "Take a moment to catch your breath.",
+      "Excellent effort. Time to rest.",
+      "Relax your muscles. Rest period starting."
     ]);
 
     _runCountdown(() {
@@ -373,7 +374,22 @@ void _startRestPhase() {
       final poses = await _poseDetector.processImage(inputImage);
       if (!mounted) return;
 
-      bool targetLocked = poses.isNotEmpty;
+      // --- STRICT FULL-BODY TARGET LOCK ---
+      bool targetLocked = false;
+      if (poses.isNotEmpty) {
+        final landmarks = poses.first.landmarks;
+        final nose = landmarks[PoseLandmarkType.nose];
+        final leftAnkle = landmarks[PoseLandmarkType.leftAnkle];
+        final rightAnkle = landmarks[PoseLandmarkType.rightAnkle];
+
+        // Ensure we see the head and at least one foot
+        if (nose != null && (leftAnkle != null || rightAnkle != null)) {
+          if (nose.likelihood > 0.5 && (leftAnkle!.likelihood > 0.5 || rightAnkle!.likelihood > 0.5)) {
+            targetLocked = true;
+          }
+        }
+      }
+
       Set<PoseLandmarkType> activeJointsToRender = {};
 
       if (targetLocked && _currentPhase == SessionPhase.active && widget.routine.isNotEmpty) {
