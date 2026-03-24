@@ -669,6 +669,7 @@ try {
                                     isFrontCamera: overlay.isFrontCamera,
                                     formState: overlay.formState,
                                     isDevicePortrait: isPortrait,
+                                    activeJoints: overlay.activeJoints,
                                   ),
                                 ),
                               );
