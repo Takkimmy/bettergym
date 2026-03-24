@@ -265,13 +265,17 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         }
 
         if (_currentPhase == SessionPhase.active && widget.routine[_currentExerciseIndex].isDuration) {
-          _repsOrSecondsRemaining--;
-          AudioService.instance.playTick(); 
+          
+          // THE FORM-LOCK: Clock ONLY ticks if form is perfect (1)
+          if (_formState != -1) { 
+            _repsOrSecondsRemaining--;
+            AudioService.instance.playTick(); 
 
-          if (_repsOrSecondsRemaining <= 0) {
-            timer.cancel();
-            AudioService.instance.playChime(); 
-            _completeExercise();
+            if (_repsOrSecondsRemaining <= 0) {
+              timer.cancel();
+              AudioService.instance.playChime(); 
+              _completeExercise();
+            }
           }
         } else {
           _countdownSeconds--;
@@ -407,20 +411,22 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       if (targetLocked && _currentPhase == SessionPhase.active && widget.routine.isNotEmpty) {
         final currentExercise = widget.routine[_currentExerciseIndex];
         
-        if (!currentExercise.isDuration) {
-          final analysis = BiomechanicsEngine.instance.processFrame(
-            pose: poses.first, 
-            exerciseName: currentExercise.name
-          );
+        // WE MUST PROCESS THE FRAME REGARDLESS OF DURATION
+        final analysis = BiomechanicsEngine.instance.processFrame(
+          pose: poses.first, 
+          exerciseName: currentExercise.name
+        );
 
-          activeJointsToRender = analysis['activeJoints'];
+        activeJointsToRender = analysis['activeJoints'];
 
-          setState(() {
-            _formState = analysis['formState'];
-            _feedbackMessage = analysis['feedback'];
-            _formScore = analysis['formScore'] ?? 1.0;     
-            _faultyJoints = analysis['faultyJoints'] ?? {}; 
+        setState(() {
+          _formState = analysis['formState'];
+          _feedbackMessage = analysis['feedback'];
+          _formScore = analysis['formScore'] ?? 1.0;     
+          _faultyJoints = analysis['faultyJoints'] ?? {}; 
 
+          // Only decrement REPS here. Duration is handled by the Timer.
+          if (!currentExercise.isDuration) {
             if (analysis['goodRepTriggered'] == true) {
               _repsOrSecondsRemaining--;
               AudioService.instance.playChime();
@@ -432,8 +438,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
               _badRepsSessionCount++;
               _triggerToast("Invalid Rep: Watch your form!", -1);
             }
-          });
-        }
+          }
+        });
       }
 
       setState(() {

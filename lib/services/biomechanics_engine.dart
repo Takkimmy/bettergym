@@ -5,6 +5,8 @@ import 'audio_service.dart';
 import 'evaluators/push_up.dart';
 import 'evaluators/bench_dip.dart';
 import 'evaluators/bicep_curl.dart';
+import 'evaluators/squat.dart';
+import 'evaluators/plank.dart';
 
 // --- THE BASE CLASS (Shared Logic for ALL Exercises) ---
 abstract class BaseEvaluator {
@@ -118,6 +120,8 @@ class BiomechanicsEngine {
       case 'pushup': case 'pushups': case 'push ups': return PushUpEvaluator();
       case 'bench dip': case 'bench dips': case 'dips': return BenchDipEvaluator();
       case 'bicep curl': case 'bicep curls': return BicepCurlEvaluator();
+      case 'squat': case 'squats': return SquatEvaluator();
+      case 'plank': case 'planks': return PlankEvaluator(); // <-- Added this line
       default: return null;
     }
   }
