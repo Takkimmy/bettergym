@@ -168,22 +168,47 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     _runCountdown(() => _startPrepPhase()); 
   }
 
-  void _startPrepPhase() {
+void _startPrepPhase() {
+    final currentExerciseName = widget.routine.isNotEmpty ? widget.routine[_currentExerciseIndex].name : "the exercise";
+    
     setState(() {
       _currentPhase = SessionPhase.prep;
       _countdownSeconds = _prepTimeSetting;
     });
+    
     _triggerToast("Get Ready.", 0);
+    
+    // Dynamic Prep Audio based on time available
+    if (_prepTimeSetting >= 20) {
+      AudioService.instance.speakPriority([
+        "Prepare for $currentExerciseName. Take your time to breathe or grab some water.",
+        "Next up, $currentExerciseName. You have plenty of time to get into position.",
+      ]);
+    } else {
+      AudioService.instance.speakPriority([
+        "Prepare for $currentExerciseName.",
+        "Get ready for $currentExerciseName.",
+      ]);
+    }
+
     _runCountdown(() => _startActivePhase());
   }
 
-  void _startRestPhase() {
+void _startRestPhase() {
     BiomechanicsEngine.instance.reset();
     setState(() {
       _currentPhase = SessionPhase.rest;
       _countdownSeconds = _restTimeSetting;
     });
+    
     _triggerToast("Rest.", 0);
+    
+    AudioService.instance.speakPriority([
+      "Set complete. Rest.",
+      "Great job. Take a breather.",
+      "Take a moment to recover."
+    ]);
+
     _runCountdown(() {
       setState(() => _currentExerciseIndex++);
       _startActivePhase();
@@ -237,7 +262,13 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
           _countdownSeconds--;
           
           if ((_currentPhase == SessionPhase.prep || _currentPhase == SessionPhase.rest)) {
-            if (_countdownSeconds <= 3 && _countdownSeconds > 0) {
+            // NEW: 10-Second Warning
+            if (_countdownSeconds == 10) {
+              AudioService.instance.speakPriority([
+                "Ten seconds remaining.",
+                "Ten seconds to go."
+              ]);
+            } else if (_countdownSeconds <= 3 && _countdownSeconds > 0) {
               AudioService.instance.playLeadInBeep();
             } else if (_countdownSeconds == 0) {
               AudioService.instance.playGoBeep();

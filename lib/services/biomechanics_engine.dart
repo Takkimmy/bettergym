@@ -107,6 +107,24 @@ class BiomechanicsEngine {
     if (shoulderWidth > torsoLength * 0.6) {
       return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Turn sideways! Front view is not supported.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
+    
+    // --- ENGAGEMENT LOCK: Must be horizontal ---
+    // Calculate the X (width) and Y (height) spread of the torso
+    final torsoDx = (shoulder.x - hip.x).abs();
+    final torsoDy = (shoulder.y - hip.y).abs();
+    
+    // If the vertical height is greater than the horizontal width, they are standing up.
+    if (torsoDy > torsoDx) {
+      return {
+        'goodRepTriggered': false, 
+        'badRepTriggered': false, 
+        'formState': 0, // Grey skeleton
+        'feedback': "Get down into plank position.", 
+        'activeJoints': activeJoints, 
+        'faultyJoints': <PoseLandmarkType>{}, 
+        'formScore': 1.0
+      };
+    }
 
     // 1. The 4-Point Kinetic Chain
     final hipHingeAngle = _calculateAngle(shoulder, hip, knee); 

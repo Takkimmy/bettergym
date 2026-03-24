@@ -25,7 +25,8 @@ class AudioService {
 
   // NEW: Cooldown Timer Tracker
   DateTime _lastSpokenTime = DateTime.fromMillisecondsSinceEpoch(0);
-  static const int _cooldownSeconds = 3;
+  static const int _cooldownSeconds = 4;
+  String _lastSpokenPhrase = "";
 
   Future<void> loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
@@ -48,30 +49,38 @@ class AudioService {
 
   // --- TTS LOGIC ---
 
-  /// Speaks a phrase immediately, ignoring cooldowns (used for setup/prep)
+  /// Speaks a phrase immediately (used for setup/prep)
   Future<void> speakPriority(List<String> variations) async {
     if (!_masterSoundEnabled) return;
-    String phrase = variations[_random.nextInt(variations.length)];
+    
+    String phrase;
+    do {
+      phrase = variations[_random.nextInt(variations.length)];
+    } while (phrase == _lastSpokenPhrase && variations.length > 1);
+    
+    _lastSpokenPhrase = phrase;
     await _tts.speak(phrase);
-    _lastSpokenTime = DateTime.now(); // Reset cooldown
+    _lastSpokenTime = DateTime.now(); 
   }
 
-  /// Speaks a form correction, but ONLY if the 3-second cooldown has passed
+  /// Speaks a form correction with a 4-second Guaranteed Silence and Haptics
   Future<void> speakCorrection(List<String> variations) async {
     if (!_masterSoundEnabled) return;
 
     final now = DateTime.now();
-    // Check if the required silence has passed
     if (now.difference(_lastSpokenTime).inSeconds >= _cooldownSeconds) {
-      String phrase = variations[_random.nextInt(variations.length)];
       
-      // 1. Instantly trigger a heavy physical vibration
-      HapticFeedback.heavyImpact();
+      String phrase;
+      do {
+        phrase = variations[_random.nextInt(variations.length)];
+      } while (phrase == _lastSpokenPhrase && variations.length > 1);
+      
+      _lastSpokenPhrase = phrase;
 
-      // 2. Wait for the TTS engine to completely finish speaking the phrase
+      HapticFeedback.heavyImpact();
       await _tts.speak(phrase);
       
-      // 3. Start the 3-second cooldown clock ONLY AFTER the voice stops
+      // Clock starts ONLY after the voice finishes
       _lastSpokenTime = DateTime.now(); 
     }
   }
