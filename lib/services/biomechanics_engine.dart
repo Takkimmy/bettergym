@@ -2,19 +2,15 @@ import 'dart:math' as math;
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 
 class BiomechanicsEngine {
-  // Singleton
   static final BiomechanicsEngine instance = BiomechanicsEngine._internal();
   BiomechanicsEngine._internal();
 
-  // State tracking for reps
   bool _isDown = false;
 
-  // Resets the state machine between sets
   void reset() {
     _isDown = false;
   }
 
-  // Master Math Formula
   double _calculateAngle(PoseLandmark first, PoseLandmark middle, PoseLandmark last) {
     final double radians = math.atan2(last.y - middle.y, last.x - middle.x) -
         math.atan2(first.y - middle.y, first.x - middle.x);
@@ -26,22 +22,14 @@ class BiomechanicsEngine {
     return degrees;
   }
 
-  /// Evaluates the frame based on the current exercise.
-  /// Returns a Map containing:
-  /// - 'repTriggered': bool (true if a rep was just completed)
-  /// - 'formState': int (1 for good, -1 for bad, 0 for neutral)
-  /// - 'feedback': String
-  /// - 'activeJoints': Set<PoseLandmarkType> (for the UI to highlight)
-  Map<String, dynamic> processFrame({
-    required Pose pose,
-    required String exerciseName,
-  }) {
-    // Default fallback state
+  Map<String, dynamic> processFrame({required Pose pose, required String exerciseName}) {
     Map<String, dynamic> result = {
       'repTriggered': false,
       'formState': 0,
       'feedback': "Position yourself in frame.",
       'activeJoints': <PoseLandmarkType>{},
+      'faultyJoints': <PoseLandmarkType>{}, // NEW: Tracks the exact failing limbs
+      'formScore': 1.0,                     // NEW: Float between 0.0 and 1.0 for the thermometer
     };
 
     switch (exerciseName.toLowerCase()) {
@@ -50,23 +38,23 @@ class BiomechanicsEngine {
       case 'push ups':
         result = _evaluatePushUp(pose);
         break;
-      // Future exercises will be plugged in here
+      case 'bicep curl':
+      case 'bicep curls':
+        result = _evaluateBicepCurl(pose);
+        break;
       default:
         result['feedback'] = "Tracking not available for $exerciseName.";
     }
-
     return result;
   }
 
-Map<String, dynamic> _evaluatePushUp(Pose pose) {
+  Map<String, dynamic> _evaluatePushUp(Pose pose) {
     final landmarks = pose.landmarks;
-
-    // Determine which side is facing the camera
     final leftShoulder = landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = landmarks[PoseLandmarkType.rightShoulder];
 
     if (leftShoulder == null || rightShoulder == null) {
-      return {'repTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}};
+      return {'repTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
 
     final bool isLeftVisible = leftShoulder.likelihood > rightShoulder.likelihood;
@@ -88,48 +76,55 @@ Map<String, dynamic> _evaluatePushUp(Pose pose) {
 
     if (shoulder == null || elbow == null || wrist == null || hip == null || ankle == null ||
         shoulder.likelihood < 0.5 || hip.likelihood < 0.5 || ankle.likelihood < 0.5) {
-      return {'repTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints};
+      return {'repTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
 
-    // 1. Kinetic Chain Alignment (Strict 160+ degrees)
+    // 1. Angles
     final coreAngle = _calculateAngle(shoulder, hip, ankle);
-    
-    // 2. Elbow Flexion / Depth (Must hit 90 degrees or less)
     final elbowAngle = _calculateAngle(shoulder, elbow, wrist);
-
-    // 3. Sagittal Shoulder Drift (Prevents reaching too far forward)
     final shoulderAngle = _calculateAngle(hip, shoulder, elbow);
 
-    // --- HEURISTIC ENFORCEMENT ---
+    // 2. Continuous Math (The Thermometer)
+    // Core perfect = 160+. Fails at 140.
+    double coreScore = ((coreAngle - 140.0) / 20.0).clamp(0.0, 1.0);
+    // Shoulder perfect = 90. Fails at 110.
+    double shoulderScore = ((110.0 - shoulderAngle) / 20.0).clamp(0.0, 1.0);
+    
+    // The total form score takes the lowest (worst) metric.
+    double formScore = math.min(coreScore, shoulderScore);
 
-    // Check 1: The Core
-    if (coreAngle < 160.0) {
-      return {'repTriggered': false, 'formState': -1, 'feedback': "Keep your spine rigid! Hips are sagging or piked.", 'activeJoints': activeJoints};
-    }
-
-    // Check 2: Joint Stacking
-    if (shoulderAngle > 100.0) {
-      return {'repTriggered': false, 'formState': -1, 'feedback': "Hands are too far forward. Stack wrists under shoulders.", 'activeJoints': activeJoints};
-    }
-
-    // --- REP COUNTING LOGIC ---
-    bool repTriggered = false;
+    // 3. Heuristic Enforcement & Limb Coloring
+    Set<PoseLandmarkType> faultyJoints = {};
+    int formState = 1; 
     String feedback = "Good posture. Lower to 90 degrees.";
-    int formState = 1; // Green outline
 
+    if (coreAngle < 160.0) {
+      formState = -1;
+      feedback = "Keep your spine rigid! Hips are sagging.";
+      // Color the Torso & Legs RED
+      faultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightAnkle]);
+    } else if (shoulderAngle > 100.0) {
+      formState = -1;
+      feedback = "Hands too far forward. Stack wrists under shoulders.";
+      // Color the Arm & Torso RED
+      faultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
+    }
+
+    // 4. Rep Logic
+    bool repTriggered = false;
     if (_isDown) {
-      feedback = "Push up!";
+      feedback = formState == -1 ? feedback : "Push up!";
       if (elbowAngle >= 160.0) {
         _isDown = false; 
-        repTriggered = true; // They successfully locked out
+        repTriggered = true; 
         feedback = "Perfect rep!";
       }
     } else {
       if (elbowAngle <= 90.0) {
-        _isDown = true; // They successfully hit depth
-        feedback = "Depth reached. Push!";
+        _isDown = true; 
+        feedback = formState == -1 ? feedback : "Depth reached. Push!";
       } else {
-        feedback = "Lower... hit 90 degrees.";
+        feedback = formState == -1 ? feedback : "Lower... hit 90 degrees.";
       }
     }
 
@@ -138,6 +133,77 @@ Map<String, dynamic> _evaluatePushUp(Pose pose) {
       'formState': formState,
       'feedback': feedback,
       'activeJoints': activeJoints,
+      'faultyJoints': faultyJoints, // Passes exactly which limbs to paint red
+      'formScore': formScore,       // Passes the thermometer percentage
+    };
+  }
+
+  Map<String, dynamic> _evaluateBicepCurl(Pose pose) {
+    final landmarks = pose.landmarks;
+    final leftShoulder = landmarks[PoseLandmarkType.leftShoulder];
+    final rightShoulder = landmarks[PoseLandmarkType.rightShoulder];
+
+    if (leftShoulder == null || rightShoulder == null) {
+      return {'repTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+    }
+
+    final bool isLeftVisible = leftShoulder.likelihood > rightShoulder.likelihood;
+    final shoulder = isLeftVisible ? landmarks[PoseLandmarkType.leftShoulder] : landmarks[PoseLandmarkType.rightShoulder];
+    final elbow = isLeftVisible ? landmarks[PoseLandmarkType.leftElbow] : landmarks[PoseLandmarkType.rightElbow];
+    final wrist = isLeftVisible ? landmarks[PoseLandmarkType.leftWrist] : landmarks[PoseLandmarkType.rightWrist];
+    final hip = isLeftVisible ? landmarks[PoseLandmarkType.leftHip] : landmarks[PoseLandmarkType.rightHip];
+
+    final activeJoints = <PoseLandmarkType>{
+      PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder,
+      PoseLandmarkType.leftElbow, PoseLandmarkType.rightElbow,
+      PoseLandmarkType.leftWrist, PoseLandmarkType.rightWrist,
+      PoseLandmarkType.leftHip, PoseLandmarkType.rightHip,
+    };
+
+    if (shoulder == null || elbow == null || wrist == null || hip == null || shoulder.likelihood < 0.5 || elbow.likelihood < 0.5) {
+      return {'repTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+    }
+
+    final elbowAngle = _calculateAngle(shoulder, elbow, wrist);
+    final shoulderSwingAngle = _calculateAngle(hip, shoulder, elbow);
+
+    // Form Score Math: Swing perfect = 15. Fails at 35.
+    double formScore = ((35.0 - shoulderSwingAngle) / 20.0).clamp(0.0, 1.0);
+
+    Set<PoseLandmarkType> faultyJoints = {};
+    int formState = 1; 
+    String feedback = "Good posture.";
+
+    if (shoulderSwingAngle > 35.0) {
+      formState = -1;
+      feedback = "Keep elbows tucked! Stop swinging.";
+      faultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
+    }
+
+    bool repTriggered = false;
+    if (_isDown) {
+      feedback = formState == -1 ? feedback : "Curl it up!";
+      if (elbowAngle < 50.0) {
+        _isDown = false; 
+        repTriggered = true; 
+        feedback = "Good squeeze!";
+      }
+    } else {
+      if (elbowAngle > 150.0) {
+        _isDown = true; 
+        feedback = formState == -1 ? feedback : "Fully extended. Curl!";
+      } else {
+        feedback = formState == -1 ? feedback : "Lower the weight fully.";
+      }
+    }
+
+    return {
+      'repTriggered': repTriggered,
+      'formState': formState,
+      'feedback': feedback,
+      'activeJoints': activeJoints,
+      'faultyJoints': faultyJoints,
+      'formScore': formScore,
     };
   }
 }

@@ -13,9 +13,9 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../main.dart';
 import '../services/audio_service.dart'; 
 import '../services/hardware_service.dart'; 
+import '../services/biomechanics_engine.dart';
 import 'session_setup_page.dart';
 import 'session_summary_page.dart';
-import '../services/biomechanics_engine.dart';
 
 enum SessionPhase { acquisition, prep, active, rest, paused, finished }
 
@@ -57,6 +57,9 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   int _repsOrSecondsRemaining = 0;
   int _formState = 0;
   String _feedbackMessage = "Position yourself in frame.";
+  double _formScore = 1.0; // NEW: Continuous percentage for thermometer
+  Set<PoseLandmarkType> _faultyJoints = {}; // NEW: Limb-specific failure tracking
+  
   bool _showToast = false;
   Timer? _toastTimer;
 
@@ -121,7 +124,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     _toastTimer?.cancel();
     _exitTimer?.cancel();
 
-    AudioService.instance.playPauseSound(); // NEW
+    AudioService.instance.playPauseSound(); 
 
     setState(() {
       _previousPhase = _currentPhase;
@@ -132,7 +135,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   void _resumeSession() {
     if (_currentPhase != SessionPhase.paused || _previousPhase == null) return;
 
-    AudioService.instance.playResumeSound(); // NEW
+    AudioService.instance.playResumeSound(); 
 
     setState(() {
       _currentPhase = _previousPhase!;
@@ -254,7 +257,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       _startRestPhase();
     } else {
       setState(() => _currentPhase = SessionPhase.finished);
-      AudioService.instance.playFinishSound(); // NEW
+      AudioService.instance.playFinishSound(); 
       _exitSession(isCompleted: true);
     }
   }
@@ -281,7 +284,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         _exitCountdown--;
         if (_exitCountdown <= 0) {
           timer.cancel();
-          _exitSession();
+          AudioService.instance.playAbortSound(); 
+          _exitSession(isCompleted: false);
         } else {
           _triggerToast("Hold for $_exitCountdown seconds to end session", -1);
         }
@@ -331,7 +335,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     _isProcessing = true;
     _lastProcessed = now;
 
-try {
+    try {
       final inputImage = _inputImageFromCameraImage(image);
       if (inputImage == null) return;
       final poses = await _poseDetector.processImage(inputImage);
@@ -343,7 +347,6 @@ try {
       if (targetLocked && _currentPhase == SessionPhase.active && widget.routine.isNotEmpty) {
         final currentExercise = widget.routine[_currentExerciseIndex];
         
-        // Execute Biomechanics Engine
         if (!currentExercise.isDuration) {
           final analysis = BiomechanicsEngine.instance.processFrame(
             pose: poses.first, 
@@ -355,6 +358,8 @@ try {
           setState(() {
             _formState = analysis['formState'];
             _feedbackMessage = analysis['feedback'];
+            _formScore = analysis['formScore'] ?? 1.0;     
+            _faultyJoints = analysis['faultyJoints'] ?? {}; 
 
             if (analysis['repTriggered'] == true) {
               _repsOrSecondsRemaining--;
@@ -380,7 +385,8 @@ try {
         isFrontCamera: _isFrontCamera,
         formState: _formState,
         isDevicePortrait: isDevicePortrait,
-        activeJoints: activeJointsToRender, // Pass to painter
+        activeJoints: activeJointsToRender, 
+        faultyJoints: _faultyJoints, 
       );
     } catch (e) {
       debugPrint('POSE ERROR: $e');
@@ -418,7 +424,7 @@ try {
     
     Navigator.pushReplacement(
       context, 
-      MaterialPageRoute(builder: (_) => SessionSummaryPage(isCompleted: isCompleted)) // PASS FLAG HERE
+      MaterialPageRoute(builder: (_) => SessionSummaryPage(isCompleted: isCompleted)) 
     );
   }
 
@@ -471,7 +477,7 @@ try {
               const SizedBox(height: 32),
               TextButton(
                 onPressed: () {
-                  AudioService.instance.playAbortSound(); // NEW
+                  AudioService.instance.playAbortSound(); 
                   _exitSession(isCompleted: false);
                 },
                 child: const Text("END SESSION EARLY", style: TextStyle(color: neonRed, fontSize: 14, letterSpacing: 1.5)),
@@ -640,7 +646,6 @@ try {
           backgroundColor: Colors.black,
           body: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            // UPDATED: Removed the "onTap" pause trigger completely. 
             onTapDown: _handleTapDown,
             onTapUp: (_) => _handleTapCancel(),
             onTapCancel: _handleTapCancel,
@@ -669,7 +674,8 @@ try {
                                     isFrontCamera: overlay.isFrontCamera,
                                     formState: overlay.formState,
                                     isDevicePortrait: isPortrait,
-                                    activeJoints: overlay.activeJoints,
+                                    activeJoints: overlay.activeJoints, 
+                                    faultyJoints: overlay.faultyJoints, 
                                   ),
                                 ),
                               );
@@ -734,7 +740,6 @@ try {
                     ),
                   ),
 
-                // NEW: Dedicated Pause Button
                 if (_currentPhase != SessionPhase.paused && _currentPhase != SessionPhase.acquisition)
                   Positioned(
                     top: isPortrait ? 60 : 20,
@@ -757,6 +762,34 @@ try {
                     ),
                   ),
 
+                // NEW: The Thermometer Form Meter
+                if (_currentPhase == SessionPhase.active && currentExercise != null && _currentPhase != SessionPhase.paused)
+                  Positioned(
+                    right: 20,
+                    top: isPortrait ? MediaQuery.of(context).size.height * 0.25 : 80,
+                    bottom: isPortrait ? MediaQuery.of(context).size.height * 0.25 : 80,
+                    child: Container(
+                      width: 16,
+                      decoration: BoxDecoration(
+                        color: darkSlate.withOpacity(0.8),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.grey.withOpacity(0.3), width: 2),
+                      ),
+                      alignment: Alignment.bottomCenter,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 100),
+                        height: (isPortrait ? MediaQuery.of(context).size.height * 0.5 : MediaQuery.of(context).size.height - 160) * _formScore,
+                        decoration: BoxDecoration(
+                          color: Color.lerp(neonRed, mintGreen, _formScore),
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(color: Color.lerp(neonRed, mintGreen, _formScore)!.withOpacity(0.5), blurRadius: 8)
+                          ]
+                        ),
+                      ),
+                    ),
+                  ),
+
                 if (_currentPhase == SessionPhase.active && currentExercise != null && _currentPhase != SessionPhase.paused)
                   Positioned(
                     bottom: isPortrait ? 40 : null,
@@ -768,8 +801,16 @@ try {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: Colors.black.withOpacity(0.3),
-                        border: Border.all(color: Colors.grey.withOpacity(0.3), width: 4),
-                    ),
+                        // Glows red if form breaks, green if perfect, grey if inactive
+                        border: Border.all(
+                          color: _formState == 1 ? mintGreen.withOpacity(0.8) : (_formState == -1 ? neonRed : Colors.grey.withOpacity(0.3)), 
+                          width: 4
+                        ),
+                        boxShadow: [
+                          if (_formState == 1) BoxShadow(color: mintGreen.withOpacity(0.4), blurRadius: 20, spreadRadius: 2),
+                          if (_formState == -1) BoxShadow(color: neonRed.withOpacity(0.6), blurRadius: 30, spreadRadius: 8),
+                        ]
+                      ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -806,7 +847,8 @@ class PoseOverlayData {
   final bool isFrontCamera;
   final int formState;
   final bool isDevicePortrait;
-  final Set<PoseLandmarkType> activeJoints; // NEW
+  final Set<PoseLandmarkType> activeJoints; 
+  final Set<PoseLandmarkType> faultyJoints; 
 
   PoseOverlayData({
     required this.poses,
@@ -815,7 +857,8 @@ class PoseOverlayData {
     required this.isFrontCamera,
     required this.formState,
     required this.isDevicePortrait,
-    required this.activeJoints, // NEW
+    required this.activeJoints, 
+    required this.faultyJoints, 
   });
 }
 
@@ -827,7 +870,8 @@ class PosePainter extends CustomPainter {
     required this.isFrontCamera,
     required this.formState,
     required this.isDevicePortrait,
-    required this.activeJoints, // NEW
+    required this.activeJoints, 
+    required this.faultyJoints, 
   });
 
   final List<Pose> poses;
@@ -837,19 +881,17 @@ class PosePainter extends CustomPainter {
   final int formState;
   final bool isDevicePortrait;
   final Set<PoseLandmarkType> activeJoints;
+  final Set<PoseLandmarkType> faultyJoints; 
 
   @override
   void paint(Canvas canvas, Size size) {
     final glowPaint = Paint()..color = Colors.white.withOpacity(0.6)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
     final solidPointPaint = Paint()..color = Colors.white..style = PaintingStyle.fill;
-    
     final inactivePointPaint = Paint()..color = Colors.grey.withOpacity(0.5)..style = PaintingStyle.fill;
 
-    Color activeEdgeColor = Colors.grey.withOpacity(0.7);
-    if (formState == 1) activeEdgeColor = mintGreen;
-    if (formState == -1) activeEdgeColor = neonRed;
-
-    final activeLinePaint = Paint()..color = activeEdgeColor..strokeWidth = 8..strokeCap = StrokeCap.round..style = PaintingStyle.stroke;
+    // Active lines are always Green. Faulty lines are Red. Inactive are Grey.
+    final activeLinePaint = Paint()..color = mintGreen.withOpacity(0.8)..strokeWidth = 6..strokeCap = StrokeCap.round..style = PaintingStyle.stroke;
+    final faultyLinePaint = Paint()..color = neonRed..strokeWidth = 8..strokeCap = StrokeCap.round..style = PaintingStyle.stroke;
     final inactiveLinePaint = Paint()..color = Colors.grey.withOpacity(0.3)..strokeWidth = 4..strokeCap = StrokeCap.round..style = PaintingStyle.stroke;
 
     final double absoluteImageWidth = isDevicePortrait ? imageSize.height : imageSize.width;
@@ -878,7 +920,13 @@ class PosePainter extends CustomPainter {
         final start = _mapPoint(Offset(p1.x, p1.y), size, absoluteImageWidth, absoluteImageHeight);
         final end = _mapPoint(Offset(p2.x, p2.y), size, absoluteImageWidth, absoluteImageHeight);
         
-        if (activeJoints.isEmpty || (activeJoints.contains(a) && activeJoints.contains(b))) {
+        bool isFaulty = faultyJoints.contains(a) && faultyJoints.contains(b);
+        bool isActive = activeJoints.isEmpty || (activeJoints.contains(a) && activeJoints.contains(b));
+
+        // Limb-specific rendering
+        if (isFaulty) {
+          canvas.drawLine(start, end, faultyLinePaint);
+        } else if (isActive) {
           canvas.drawLine(start, end, activeLinePaint);
         } else {
           canvas.drawLine(start, end, inactiveLinePaint);
@@ -891,12 +939,10 @@ class PosePainter extends CustomPainter {
       drawLine(PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist);
       drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow);
       drawLine(PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist);
-      
       // Torso
       drawLine(PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip);
       drawLine(PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip);
       drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.rightHip);
-      
       // Legs
       drawLine(PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee);
       drawLine(PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle);
