@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart'; 
 import 'pose_camera_page.dart';
+import 'package:flutter/cupertino.dart';
 
 class SessionSetupPage extends StatefulWidget {
   const SessionSetupPage({super.key});
@@ -212,13 +213,11 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
   }
 
 
-  void _showAddEditDialog({WorkoutSet? existingSet, int? index}) {
+void _showAddEditDialog({WorkoutSet? existingSet, int? index}) {
     String selectedName = existingSet?.name ?? _availableExercises.first;
     bool isDuration = selectedName.toLowerCase() == 'plank';
     
-    int initialTarget = existingSet?.target ?? (isDuration ? 60 : 10);
-    double sliderValue = initialTarget.toDouble().clamp(1.0, 300.0);
-    TextEditingController targetController = TextEditingController(text: initialTarget.toString());
+    int tempTarget = existingSet?.target ?? (isDuration ? 60 : 10);
 
     showDialog(
       context: context,
@@ -241,57 +240,33 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                         setDialogState(() {
                           selectedName = val;
                           isDuration = selectedName.toLowerCase() == 'plank';
-                          
-                          int newTarget = isDuration ? 60 : 10;
-                          sliderValue = newTarget.toDouble();
-                          targetController.text = newTarget.toString();
+                          tempTarget = isDuration ? 60 : 10;
                         });
                       }
                     },
                   ),
                   const SizedBox(height: 24),
                   
-                  TextField(
-                    controller: targetController,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
-                    decoration: InputDecoration(
-                      labelText: isDuration ? 'Target (Seconds)' : 'Target (Reps)',
-                      labelStyle: const TextStyle(color: Colors.grey, fontSize: 14),
-                      enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-                      focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: mintGreen)),
-                    ),
-                    onChanged: (val) {
-                      int? parsed = int.tryParse(val);
-                      if (parsed != null) {
-                        setDialogState(() {
-                          sliderValue = parsed.toDouble().clamp(1.0, 300.0);
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: mintGreen,
-                      inactiveTrackColor: Colors.grey.shade800,
-                      thumbColor: Colors.white,
-                      overlayColor: mintGreen.withOpacity(0.2),
-                    ),
-                    child: Slider(
-                      value: sliderValue,
-                      min: 1,
-                      max: 300, 
-                      divisions: 299,
-                      onChanged: (val) {
-                        setDialogState(() {
-                          sliderValue = val;
-                          targetController.text = val.toInt().toString();
-                        });
-                      },
+                  // --- THE SCROLLING WHEEL ---
+                  Text(isDuration ? "SECONDS" : "REPS", style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 120, // Keeps the dialog compact
+                    child: CupertinoTheme(
+                      data: const CupertinoThemeData(
+                        textTheme: CupertinoTextThemeData(
+                          pickerTextStyle: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      child: CupertinoPicker(
+                        scrollController: FixedExtentScrollController(initialItem: tempTarget - 1),
+                        itemExtent: 45,
+                        selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
+                        onSelectedItemChanged: (idx) {
+                          tempTarget = idx + 1;
+                        },
+                        children: List.generate(300, (idx) => Center(child: Text('${idx + 1}'))),
+                      ),
                     ),
                   ),
                 ],
@@ -301,17 +276,13 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: mintGreen, foregroundColor: navyBlue),
                   onPressed: () {
-                    final target = int.tryParse(targetController.text) ?? (isDuration ? 60 : 10);
-                    
                     setState(() {
                       if (index != null) {
-                        // Keep original ID if editing
                         _routine[index].name = selectedName;
-                        _routine[index].target = target;
+                        _routine[index].target = tempTarget;
                         _routine[index].isDuration = isDuration;
                       } else {
-                        // Generates a fresh unique ID automatically
-                        _routine.add(WorkoutSet(name: selectedName, target: target, isDuration: isDuration));
+                        _routine.add(WorkoutSet(name: selectedName, target: tempTarget, isDuration: isDuration));
                       }
                     });
                     

@@ -1,5 +1,5 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 
@@ -13,6 +13,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   int _prepTime = 10;
   int _restTime = 30;
+  bool _voiceEnabled = true;
+  double _volume = 1.0;
   bool _isLoading = true;
 
   @override
@@ -26,98 +28,88 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() {
       _prepTime = prefs.getInt('prep_time') ?? 10;
       _restTime = prefs.getInt('rest_time') ?? 30;
+      _voiceEnabled = prefs.getBool('voice_enabled') ?? true;
+      _volume = prefs.getDouble('master_volume') ?? 1.0;
       _isLoading = false;
     });
   }
 
-  Future<void> _saveSetting(String key, int value) async {
+  Future<void> _saveIntSetting(String key, int value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(key, value);
   }
 
-  Widget _buildSliderSetting({
+  Future<void> _saveBoolSetting(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
+  }
+
+  Future<void> _saveDoubleSetting(String key, double value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(key, value);
+  }
+
+  // --- THE ALARM CLOCK SCROLLING WHEEL ---
+  void _showScrollPicker({
     required String title,
-    required String keyName,
     required int currentValue,
     required int maxLimit,
-    required Function(int) onChanged,
+    required Function(int) onSelected,
   }) {
-    TextEditingController controller = TextEditingController(text: currentValue.toString());
-    double sliderValue = currentValue.toDouble().clamp(1.0, maxLimit.toDouble());
+    int tempValue = currentValue;
 
-    return StatefulBuilder(
-      builder: (context, setInnerState) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: darkSlate,
-            borderRadius: BorderRadius.circular(12),
-          ),
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: darkSlate,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return SizedBox(
+          height: 300,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        activeTrackColor: mintGreen,
-                        inactiveTrackColor: Colors.grey.shade800,
-                        thumbColor: Colors.white,
-                        overlayColor: mintGreen.withOpacity(0.2),
-                      ),
-                      child: Slider(
-                        value: sliderValue,
-                        min: 1,
-                        max: maxLimit.toDouble(),
-                        divisions: maxLimit - 1,
-                        onChanged: (val) {
-                          setInnerState(() {
-                            sliderValue = val;
-                            controller.text = val.toInt().toString();
-                          });
-                          onChanged(val.toInt());
-                          _saveSetting(keyName, val.toInt());
-                        },
-                      ),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
                     ),
-                  ),
-                  SizedBox(
-                    width: 60,
-                    child: TextField(
-                      controller: controller,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                      textAlign: TextAlign.center,
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(vertical: 8),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
-                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: mintGreen)),
-                      ),
-                      onChanged: (val) {
-                        int? parsed = int.tryParse(val);
-                        if (parsed != null) {
-                          setInnerState(() {
-                            sliderValue = parsed.toDouble().clamp(1.0, maxLimit.toDouble());
-                          });
-                          onChanged(parsed);
-                          _saveSetting(keyName, parsed);
-                        }
+                    Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                    TextButton(
+                      onPressed: () {
+                        onSelected(tempValue);
+                        Navigator.pop(context);
                       },
+                      child: const Text("SAVE", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: CupertinoTheme(
+                  data: const CupertinoThemeData(
+                    textTheme: CupertinoTextThemeData(
+                      pickerTextStyle: TextStyle(color: Colors.white, fontSize: 24),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  const Text("sec", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                ],
+                  child: CupertinoPicker(
+                    scrollController: FixedExtentScrollController(initialItem: currentValue - 1),
+                    itemExtent: 50,
+                    onSelectedItemChanged: (index) {
+                      tempValue = index + 1;
+                    },
+                    children: List.generate(maxLimit, (index) {
+                      return Center(child: Text('${index + 1} sec'));
+                    }),
+                  ),
+                ),
               ),
             ],
           ),
         );
-      }
+      },
     );
   }
 
@@ -141,20 +133,98 @@ class _SettingsPageState extends State<SettingsPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildSliderSetting(
-            title: "Preparation Time",
-            keyName: "prep_time",
-            currentValue: _prepTime,
-            maxLimit: 60, // Max 60 seconds prep
-            onChanged: (val) => _prepTime = val,
+          // --- AUDIO CONTROLS RESTORED ---
+          const Padding(
+            padding: EdgeInsets.only(left: 16, bottom: 8, top: 8),
+            child: Text("AUDIO", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
           ),
-          const SizedBox(height: 16),
-          _buildSliderSetting(
-            title: "Rest Time Between Sets",
-            keyName: "rest_time",
-            currentValue: _restTime,
-            maxLimit: 180, // Max 3 minutes rest
-            onChanged: (val) => _restTime = val,
+          Container(
+            decoration: BoxDecoration(color: darkSlate, borderRadius: BorderRadius.circular(12)),
+            child: Column(
+              children: [
+                SwitchListTile(
+                  title: const Text("Voice Feedback", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text("AI form corrections and cadence", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  activeColor: mintGreen,
+                  value: _voiceEnabled,
+                  onChanged: (val) {
+                    setState(() => _voiceEnabled = val);
+                    _saveBoolSetting('voice_enabled', val);
+                  },
+                ),
+                const Divider(color: Colors.grey, height: 1),
+                ListTile(
+                  title: const Text("Master Volume", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: mintGreen,
+                      inactiveTrackColor: Colors.grey.shade800,
+                      thumbColor: Colors.white,
+                    ),
+                    child: Slider(
+                      value: _volume,
+                      min: 0.0,
+                      max: 1.0,
+                      onChanged: (val) {
+                        setState(() => _volume = val);
+                      },
+                      onChangeEnd: (val) {
+                        _saveDoubleSetting('master_volume', val);
+                      },
+                    ),
+                  ),
+                  trailing: Icon(_volume == 0 ? Icons.volume_off : Icons.volume_up, color: mintGreen),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // --- TIMER CONTROLS ---
+          const Padding(
+            padding: EdgeInsets.only(left: 16, bottom: 8),
+            child: Text("TIMERS", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+          ),
+          Container(
+            decoration: BoxDecoration(color: darkSlate, borderRadius: BorderRadius.circular(12)),
+            child: Column(
+              children: [
+                ListTile(
+                  title: const Text("Preparation Time", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text("Countdown before exercise starts", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  trailing: Text("$_prepTime sec", style: const TextStyle(color: mintGreen, fontSize: 16, fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    _showScrollPicker(
+                      title: "PREP TIME",
+                      currentValue: _prepTime,
+                      maxLimit: 60,
+                      onSelected: (val) {
+                        setState(() => _prepTime = val);
+                        _saveIntSetting('prep_time', val);
+                      }
+                    );
+                  },
+                ),
+                const Divider(color: Colors.grey, height: 1),
+                ListTile(
+                  title: const Text("Rest Time", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  subtitle: const Text("Cooldown between sets", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  trailing: Text("$_restTime sec", style: const TextStyle(color: mintGreen, fontSize: 16, fontWeight: FontWeight.bold)),
+                  onTap: () {
+                    _showScrollPicker(
+                      title: "REST TIME",
+                      currentValue: _restTime,
+                      maxLimit: 180,
+                      onSelected: (val) {
+                        setState(() => _restTime = val);
+                        _saveIntSetting('rest_time', val);
+                      }
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ],
       ),
