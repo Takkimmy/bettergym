@@ -56,7 +56,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
   int _repsOrSecondsRemaining = 0;
   int _badRepsSessionCount = 0;
-  int _formState = 0; // Declared once
+  int _formState = 0; 
   String _feedbackMessage = "Position yourself in frame.";
   double _formScore = 1.0; 
   Set<PoseLandmarkType> _faultyJoints = {}; 
@@ -67,9 +67,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   int _exitCountdown = 4;
   Timer? _exitTimer;
   
-  // --- INVISIBLE TELEMETRY TRACKERS ---
   int _previousFormState = 1; 
-  List<int> _formBreakSeconds = []; // Logs the exact second the form broke
+  List<int> _formBreakSeconds = []; 
 
   @override
   void initState() {
@@ -80,7 +79,25 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     );
     
     _verifyPermissionsAndBoot();
+    _unlockOrientation(); // Start completely unlocked
+  }
 
+  // --- NEW: ORIENTATION LOCK MECHANICS ---
+  void _lockOrientation() {
+    final orientation = MediaQuery.of(context).orientation;
+    if (orientation == Orientation.landscape) {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } else {
+      SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+      ]);
+    }
+  }
+
+  void _unlockOrientation() {
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.landscapeLeft,
@@ -164,6 +181,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   }
 
   void _startAcquisitionPhase() {
+    _unlockOrientation(); // Free rotation while they set up
     setState(() {
       _currentPhase = SessionPhase.acquisition;
       _countdownSeconds = 5; 
@@ -173,8 +191,11 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   }
 
   void _startPrepPhase() {
+    _lockOrientation(); // Lock the UI to protect the ML Kit math
+    
     final currentExerciseName = widget.routine.isNotEmpty ? widget.routine[_currentExerciseIndex].name : "the exercise";
     final isPushUp = currentExerciseName.toLowerCase().contains("push");
+    final isSquat = currentExerciseName.toLowerCase().contains("squat");
 
     setState(() {
       _currentPhase = SessionPhase.prep;
@@ -183,11 +204,17 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     
     _triggerToast("Get Ready.", 0);
     
+    // --- UPDATED AUDIO: Explicit Squat & Push-up Instructions ---
     if (_prepTimeSetting >= 20) {
       if (isPushUp) {
         AudioService.instance.speakPriority([
           "Prepare for $currentExerciseName. Ensure your whole body is visible from the side.",
           "Next up, $currentExerciseName. Set your phone down and give me a clear side profile."
+        ]);
+      } else if (isSquat) {
+        AudioService.instance.speakPriority([
+          "Prepare for $currentExerciseName. You can face the camera directly, or stand sideways.",
+          "Next up, $currentExerciseName. Face the front or face the side."
         ]);
       } else {
         AudioService.instance.speakPriority([
@@ -200,6 +227,11 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         AudioService.instance.speakPriority([
           "Prepare for $currentExerciseName. Side profile required.",
           "Get ready for $currentExerciseName. Face sideways to the camera."
+        ]);
+      } else if (isSquat) {
+        AudioService.instance.speakPriority([
+          "Prepare for $currentExerciseName. Face front or side.",
+          "Get ready for $currentExerciseName. Choose your angle."
         ]);
       } else {
         AudioService.instance.speakPriority([
@@ -214,6 +246,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
   void _startRestPhase() {
     BiomechanicsEngine.instance.reset();
+    _unlockOrientation(); // Unlock so they can rotate for the next exercise
+
     setState(() {
       _currentPhase = SessionPhase.rest;
       _countdownSeconds = _restTimeSetting;
@@ -230,14 +264,12 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
     _runCountdown(() {
       setState(() => _currentExerciseIndex++);
-      _startActivePhase();
+      _startPrepPhase(); // Triggers prep audio instead of jumping straight to active
     });
   }
 
   void _startActivePhase() {
     BiomechanicsEngine.instance.reset();
-    
-    // --- WIPE THE LOGS FOR NEW EXERCISE ---
     _previousFormState = 1;
     _formBreakSeconds = [];
 
@@ -274,8 +306,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         }
 
         if (_currentPhase == SessionPhase.active && widget.routine[_currentExerciseIndex].isDuration) {
-          
-          // THE FORM-LOCK: Clock ONLY ticks if form is perfect (1)
           if (_formState != -1) { 
             _repsOrSecondsRemaining--;
             AudioService.instance.playTick(); 
@@ -295,11 +325,9 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
             if (_countdownSeconds == 10) {
               AudioService.instance.speakPriority([
                 "Ten seconds remaining.",
-                "Ten seconds to go.",
-                "Less than ten seconds left.",
+                "Ten seconds to go."
               ]);
             } else if (_countdownSeconds == 7) {
-              // --- NEW: 7-SECOND STARTING POSITION WARNING ---
               AudioService.instance.speakPriority([
                 "Assume the starting position for $currentExerciseName.",
                 "Seven seconds. Get into position.",
@@ -411,7 +439,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
       final poses = await _poseDetector.processImage(inputImage);
       if (!mounted) return;
 
-      // --- STRICT FULL-BODY TARGET LOCK ---
       bool targetLocked = false;
       if (poses.isNotEmpty) {
         final landmarks = poses.first.landmarks;
@@ -444,7 +471,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
           _formScore = analysis['formScore'] ?? 1.0;     
           _faultyJoints = analysis['faultyJoints'] ?? {}; 
 
-          // --- THE INVISIBLE TELEMETRY TRACKER ---
           if (_previousFormState == 1 && _formState == -1) {
             if (currentExercise.isDuration) {
               _formBreakSeconds.add(_repsOrSecondsRemaining);

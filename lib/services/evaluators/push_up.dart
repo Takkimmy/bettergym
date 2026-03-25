@@ -95,7 +95,7 @@ class PushUpEvaluator extends BaseEvaluator {
     processFormState(
       rawFormState: rawFormState, rawFormError: rawFormError, 
       rawFaultyJoints: rawFaultyJoints, ttsVariations: ttsVariations, 
-      amnesiaConditionMet: elbowAngle >= 140.0 // Adjusted for the new lockout
+      amnesiaConditionMet: elbowAngle >= 140.0 
     );
 
     // --- START THE STOPWATCH ---
@@ -109,7 +109,6 @@ class PushUpEvaluator extends BaseEvaluator {
 
     if (isDown) {
       repFeedback = "Push up!";
-      // Adjusted lockout from 160.0 to 150.0 to protect the elbow joint
       if (elbowAngle >= 150.0) {
         isDown = false; 
         lowestElbowAngle = 180.0; 
@@ -139,7 +138,7 @@ class PushUpEvaluator extends BaseEvaluator {
         repFeedback = "Depth reached. Push!";
       } else {
         repFeedback = "Lower... hit 90 degrees.";
-        if (elbowAngle >= 140.0 && lowestElbowAngle < 130.0) {
+        if (elbowAngle >= 140.0 && lowestElbowAngle > 100.0) {
           AudioService.instance.speakCorrection(["Half rep. Go lower next time.", "Not low enough. Break 90 degrees.", "Chest to the floor."]);
           lowestElbowAngle = 180.0; 
         }
