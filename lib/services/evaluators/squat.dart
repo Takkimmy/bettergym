@@ -4,7 +4,6 @@ import '../audio_service.dart';
 import '../biomechanics_engine.dart';
 
 class SquatEvaluator extends BaseEvaluator {
-  // We track the lowest knee angle to catch half-reps
   double _lowestKneeAngle = 180.0;
 
   @override
@@ -40,25 +39,30 @@ class SquatEvaluator extends BaseEvaluator {
       return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
 
-    // 1. Math & Geometry
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
 
     final kneeFlexionAngle = calculateAngle(hip, knee, ankle);
-    final hipHingeAngle = calculateAngle(shoulder, hip, knee);
-    
     if (kneeFlexionAngle < _lowestKneeAngle) _lowestKneeAngle = kneeFlexionAngle;
 
-    // Calculate Absolute Trunk Angle (Forward Lean)
-    // 0 = perfectly upright. 90 = parallel to the floor.
-    final dx = (shoulder.x - hip.x).abs();
-    final dy = (shoulder.y - hip.y).abs();
-    final trunkAngle = math.atan2(dx, dy) * 180 / math.pi;
+    // --- NEW MATH: THE PARALLEL RATIO ---
+    
+    // 1. Trunk Angle from Vertical
+    final trunkDx = (shoulder.x - hip.x).abs();
+    final trunkDy = (shoulder.y - hip.y).abs();
+    final trunkAngle = math.atan2(trunkDx, trunkDy) * 180 / math.pi;
 
-    // 2. Thermometer Smoothing
-    double coreScore = ((50.0 - trunkAngle) / 20.0).clamp(0.0, 1.0);
-    double depthScore = ((kneeFlexionAngle - 90.0) / 60.0).clamp(0.0, 1.0);
-    double rawFormScore = math.min(coreScore, depthScore);
+    // 2. Tibia (Shin) Angle from Vertical
+    final tibiaDx = (knee.x - ankle.x).abs();
+    final tibiaDy = (knee.y - ankle.y).abs();
+    final tibiaAngle = math.atan2(tibiaDx, tibiaDy) * 180 / math.pi;
+
+    // 3. The Collapse Differential
+    // A positive number means the torso is leaning further forward than the knees are tracking.
+    final torsoCollapseDifferential = trunkAngle - tibiaAngle;
+
+    // Smoothing Score (Based on depth)
+    double rawFormScore = ((kneeFlexionAngle - 90.0) / 60.0).clamp(0.0, 1.0);
     smoothedFormScore = (smoothedFormScore * 0.8) + (rawFormScore * 0.2);
 
     int rawFormState = 1; 
@@ -66,8 +70,8 @@ class SquatEvaluator extends BaseEvaluator {
     Set<PoseLandmarkType> rawFaultyJoints = {};
     List<String> ttsVariations = [];
 
-    // 3. Clinical Heuristics
-    // A. Perspective Lock
+    // --- CLINICAL HEURISTICS ---
+    
     if (shoulderWidth > torsoLength * 0.6) {
       rawFormState = -1;
       rawFaultyJoints.addAll(activeJoints);
@@ -76,23 +80,27 @@ class SquatEvaluator extends BaseEvaluator {
         ttsVariations = ["Turn sideways. I need to see your squat depth.", "Face sideways to the camera."];
       }
     }
-    // B. Torso Collapse (The "Good Morning" Squat)
-    else if (trunkAngle > 50.0) {
+    // Dynamic Torso Collapse (Replaces the rigid 50-degree rule)
+    // Allows up to 20 degrees of natural mechanical variance between shin and torso
+    else if (torsoCollapseDifferential > 20.0) {
       rawFormState = -1;
-      rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip]);
+      rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip, PoseLandmarkType.leftKnee, PoseLandmarkType.rightKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle]);
       if (rawFormError.isEmpty) {
         rawFormError = "Chest is falling.";
-        ttsVariations = ["Keep your chest up.", "Don't fold forward. Keep your back straight.", "Raise your chest."];
+        ttsVariations = [
+          "Chest up. Keep your back parallel to your shins.", 
+          "Don't fold forward.", 
+          "Drop your hips, don't just bow forward."
+        ];
       }
     }
 
-    // 4. Pass to Master Pipeline
     processFormState(
       rawFormState: rawFormState, 
       rawFormError: rawFormError, 
       rawFaultyJoints: rawFaultyJoints, 
       ttsVariations: ttsVariations, 
-      amnesiaConditionMet: kneeFlexionAngle >= 160.0 // Standing up = resting state
+      amnesiaConditionMet: kneeFlexionAngle >= 160.0 
     );
 
     // --- START THE STOPWATCH ---
@@ -100,18 +108,16 @@ class SquatEvaluator extends BaseEvaluator {
       repMovementStartTime = DateTime.now();
     }
 
-    // 5. Strict Rep Logic
     bool goodRep = false;
     bool badRep = false;
     String repFeedback = "";
 
-    // isDown = true means they have hit the bottom of the squat
     if (isDown) {
       repFeedback = "Stand up!";
       if (kneeFlexionAngle >= 160.0) { 
         isDown = false; 
         
-        // --- CHECK THE SPEED LIMIT ---
+        // CHECK THE SPEED LIMIT (1.5s for Squats)
         bool isRushed = false;
         if (repMovementStartTime != null) {
           final durationMs = DateTime.now().difference(repMovementStartTime!).inMilliseconds;
@@ -130,17 +136,15 @@ class SquatEvaluator extends BaseEvaluator {
           goodRep = true;
           repFeedback = "Great depth!";
         }
-        _lowestKneeAngle = 180.0; // Reset depth tracker
+        _lowestKneeAngle = 180.0; 
       }
     } else {
-      // 90 degrees at the knee is the clinical definition of hitting parallel
       if (kneeFlexionAngle <= 90.0) { 
         isDown = true; 
         repFeedback = "Depth reached. Stand!";
       } else {
         repFeedback = "Drop lower...";
         
-        // Half-Rep Detection: If they stand back up before hitting 90 degrees
         if (kneeFlexionAngle > 150.0 && _lowestKneeAngle < 130.0) {
           AudioService.instance.speakCorrection([
             "Half rep. Break parallel.",
