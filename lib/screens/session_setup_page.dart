@@ -213,7 +213,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
   }
 
 
-void _showAddEditDialog({WorkoutSet? existingSet, int? index}) {
+  void _showAddEditDialog({WorkoutSet? existingSet, int? index}) {
     String selectedName = existingSet?.name ?? _availableExercises.first;
     bool isDuration = selectedName.toLowerCase() == 'plank';
     
