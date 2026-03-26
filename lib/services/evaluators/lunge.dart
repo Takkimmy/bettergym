@@ -46,10 +46,7 @@ class LungeEvaluator extends BaseEvaluator {
     }
 
     // --- 1. DYNAMIC LEG IDENTIFICATION ---
-    // Figure out which way they are facing based on nose vs shoulder
     bool facingRight = nose.x > shoulder.x;
-    
-    // The front foot is the one furthest in the direction they are facing
     bool isLeftFront = facingRight ? (leftAnkle.x > rightAnkle.x) : (leftAnkle.x < rightAnkle.x);
 
     final frontAnkle = isLeftFront ? leftAnkle : rightAnkle;
@@ -58,21 +55,19 @@ class LungeEvaluator extends BaseEvaluator {
     final backKnee = isLeftFront ? rightKnee : leftKnee;
 
     // --- 2. MATH & GEOMETRY ---
+    final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
     final stepLength = (frontAnkle.x - backAnkle.x).abs(); 
     
     final frontKneeFlexion = calculateAngle(hip, frontKnee, frontAnkle);
     if (frontKneeFlexion < _lowestKneeAngle) _lowestKneeAngle = frontKneeFlexion;
 
-    // Torso Lean Logic
     final torsoDx = shoulder.x - hip.x;
     final leanAngle = math.atan2(torsoDx.abs(), (shoulder.y - hip.y).abs()) * 180 / math.pi;
     bool leaningForward = facingRight ? torsoDx > 0 : torsoDx < 0;
 
-    // Back Knee Twist Logic (Foreshortening)
     final backShinLength = math.sqrt(math.pow(backKnee.x - backAnkle.x, 2) + math.pow(backKnee.y - backAnkle.y, 2));
 
-    // Smoothing
     double coreScore = ((25.0 - leanAngle) / 15.0).clamp(0.0, 1.0);
     double depthScore = ((frontKneeFlexion - 100.0) / 60.0).clamp(0.0, 1.0);
     double rawFormScore = math.min(coreScore, depthScore);
@@ -86,8 +81,18 @@ class LungeEvaluator extends BaseEvaluator {
 
     // --- 3. CLINICAL HEURISTICS ---
 
-    // A. The Shallow Step 
-    if (frontKneeFlexion < 140.0 && stepLength < torsoLength * 0.70) {
+    // A. Strict Sideways Profile
+    if (shoulderWidth > torsoLength * 0.45) {
+      rawFormState = -1;
+      triggerInstantKill = true;
+      rawFaultyJoints.addAll(activeJoints); 
+      if (rawFormError.isEmpty) {
+        rawFormError = "Turn sideways.";
+        ttsVariations = ["Turn sideways.", "Face the side, do not look at the camera."];
+      }
+    }
+    // B. The Shallow Step 
+    else if (frontKneeFlexion < 140.0 && stepLength < torsoLength * 0.70) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle]);
       if (rawFormError.isEmpty) {
@@ -95,17 +100,17 @@ class LungeEvaluator extends BaseEvaluator {
         ttsVariations = ["Widen your stance.", "Take a longer step.", "Your feet are too close together."];
       }
     }
-    // B. Back Knee Twist (Foreshortening Trap)
+    // C. Back Knee Twist
     else if (frontKneeFlexion < 130.0 && backShinLength < torsoLength * 0.35) {
       rawFormState = -1;
       triggerInstantKill = true;
       rawFaultyJoints.addAll([PoseLandmarkType.leftKnee, PoseLandmarkType.rightKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle]);
       if (rawFormError.isEmpty) {
         rawFormError = "Back knee twisting.";
-        ttsVariations = ["Point your back knee straight down.", "Don't twist your back leg outward.", "Keep your back leg aligned."];
+        ttsVariations = ["Point your back knee straight down.", "Don't twist your back leg outward."];
       }
     }
-    // C. Forward Torso Collapse
+    // D. Forward Torso Collapse
     else if (leaningForward && leanAngle > 25.0) {
       rawFormState = -1;
       triggerInstantKill = true; 
@@ -115,13 +120,13 @@ class LungeEvaluator extends BaseEvaluator {
         ttsVariations = ["Chest up.", "Don't lean forward.", "Straighten your back."];
       }
     }
-    // D. Backward Torso Hyperextension
+    // E. Backward Torso Hyperextension
     else if (!leaningForward && leanAngle > 10.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip]);
       if (rawFormError.isEmpty) {
         rawFormError = "Leaning backward.";
-        ttsVariations = ["Stop leaning back.", "Keep your torso vertical.", "Don't hyperextend your spine."];
+        ttsVariations = ["Stop leaning back.", "Keep your torso vertical."];
       }
     }
 
@@ -149,7 +154,6 @@ class LungeEvaluator extends BaseEvaluator {
       if (frontKneeFlexion >= 160.0) { 
         isDown = false; 
         
-        // CHECK THE SPEED LIMIT (Strict 2.0s)
         bool isRushed = false;
         if (repMovementStartTime != null) {
           final durationMs = DateTime.now().difference(repMovementStartTime!).inMilliseconds;
@@ -177,13 +181,16 @@ class LungeEvaluator extends BaseEvaluator {
       } else {
         repFeedback = "Drop lower...";
         
-        // Half-Rep Detection
-        if (frontKneeFlexion > 150.0 && _lowestKneeAngle < 130.0) {
-          AudioService.instance.speakCorrection([
-            "Half rep. Drop your back knee lower.",
-            "Go deeper on the lunge.",
-            "Back knee toward the floor."
-          ]);
+        // THE FIX: Only trigger Half Rep if they returned to a FULL STAND (>= 160) 
+        // without ever hitting the depth target (95), and actually made an attempt (< 140).
+        if (frontKneeFlexion >= 160.0 && _lowestKneeAngle < 140.0 && _lowestKneeAngle > 95.0) {
+          if (publishedFormState != -1) {
+            AudioService.instance.speakCorrection([
+              "Partial repetition. Drop your back knee lower.",
+              "Go deeper on the lunge.",
+              "Back knee toward the floor."
+            ]);
+          }
           _lowestKneeAngle = 180.0; 
         }
       }

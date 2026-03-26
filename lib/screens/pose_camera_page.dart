@@ -193,10 +193,10 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     final currentExerciseName = widget.routine.isNotEmpty ? widget.routine[_currentExerciseIndex].name : "the exercise";
     final nameLower = currentExerciseName.toLowerCase();
     
-    // Categorize the exercise for specific instructions
     final isHorizontal = nameLower.contains("push") || nameLower.contains("plank");
     final isSquat = nameLower.contains("squat");
-    final isVertical = !isHorizontal && !isSquat; // Curls, Dips, Lunges
+    final isLunge = nameLower.contains("lunge");
+    final isVertical = !isHorizontal && !isSquat && !isLunge; 
 
     setState(() {
       _currentPhase = SessionPhase.prep;
@@ -216,6 +216,12 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
           "Prepare for $currentExerciseName. You can face the camera directly, or stand sideways. Portrait mode is recommended.",
           "Next up, $currentExerciseName. Face the front or face the side."
         ]);
+      } else if (isLunge) {
+        // THE NEW LUNGE AUDIO
+        AudioService.instance.speakPriority([
+          "Prepare for $currentExerciseName. To avoid blocking your legs from the camera, face left to lunge with your left leg, and face right to lunge with your right leg.",
+          "Next up, $currentExerciseName. Face left for your left leg, and face right for your right leg. Portrait mode required."
+        ]);
       } else if (isVertical) {
         AudioService.instance.speakPriority([
           "Prepare for $currentExerciseName. Portrait mode and a clear side profile are strictly required.",
@@ -232,6 +238,12 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         AudioService.instance.speakPriority([
           "Prepare for $currentExerciseName. Face front or side.",
           "Get ready for $currentExerciseName. Choose your angle."
+        ]);
+      } else if (isLunge) {
+        // THE NEW LUNGE AUDIO (Short version)
+        AudioService.instance.speakPriority([
+          "Prepare for $currentExerciseName. Face left for left leg, right for right leg.",
+          "Get ready for $currentExerciseName. Face the side your front leg is on."
         ]);
       } else if (isVertical) {
         AudioService.instance.speakPriority([
