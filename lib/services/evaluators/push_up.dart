@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import '../audio_service.dart';
 import '../biomechanics_engine.dart';
@@ -54,9 +55,12 @@ class PushUpEvaluator extends BaseEvaluator {
 
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
+    
+    // THE FIX: Flipped greater/less-than logic to correct the camera inversion
     double expectedHipY = shoulder.y + (hip.x - shoulder.x) * ((knee.y - shoulder.y) / (knee.x - shoulder.x == 0 ? 0.001 : knee.x - shoulder.x));
-    bool isSagging = hip.y > expectedHipY;
+    bool isSagging = hip.y < expectedHipY;
 
+    // THE FIX: Reordered priority to prevent shadowing
     if (shoulderWidth > torsoLength * 0.55) {
       rawFormState = -1;
       rawFaultyJoints.addAll(activeJoints); 
@@ -64,14 +68,9 @@ class PushUpEvaluator extends BaseEvaluator {
         rawFormError = "Turn sideways.";
         ttsVariations = ["Turn sideways. Front view is not supported.", "Please face sideways to the camera."];
       }
-    } else if (kneeFlexionAngle < 160.0) {
-      rawFormState = -1;
-      rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle]);
-      if (rawFormError.isEmpty) {
-        rawFormError = "Knees bent.";
-        ttsVariations = ["Knees are bent, straighten your legs.", "Keep your legs completely straight.", "Lock your knees out."];
-      }
-    } else if (hipHingeAngle < 165.0) {
+    } 
+    // PRIORITY 1: Core/Hips
+    else if (hipHingeAngle < 165.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee]);
       if (rawFormError.isEmpty) {
@@ -80,10 +79,21 @@ class PushUpEvaluator extends BaseEvaluator {
           ttsVariations = ["Hips are dropping. Squeeze your core.", "Keep your back straight. Don't let your hips sag.", "Tighten your core."];
         } else {
           rawFormError = "Butt too high.";
-          ttsVariations = ["Lower your hips. Your butt is too high.", "Bring your hips down into a straight plank.", "Flatten your back."];
+          ttsVariations = ["Lower your hips. Your butt is too high.", "Bring your hips down into a straight line.", "Flatten your back."];
         }
       }
-    } else if (shoulderAngle > 90.0) {
+    } 
+    // PRIORITY 2: Knees
+    else if (kneeFlexionAngle < 160.0) {
+      rawFormState = -1;
+      rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle]);
+      if (rawFormError.isEmpty) {
+        rawFormError = "Knees bent.";
+        ttsVariations = ["Knees are bent, straighten your legs.", "Keep your legs completely straight.", "Lock your knees out."];
+      }
+    } 
+    // PRIORITY 3: Shoulders
+    else if (shoulderAngle > 90.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
       if (rawFormError.isEmpty) {
@@ -142,7 +152,7 @@ class PushUpEvaluator extends BaseEvaluator {
         if (elbowAngle >= 140.0 && lowestElbowAngle > 100.0) {
           if (publishedFormState != -1) {
             AudioService.instance.speakCorrection([
-              "Partial repetition. Go lower next time.", // Rephrased to stop the "Representative" bug
+              "Partial repetition. Go lower next time.", 
               "Not low enough. Break 90 degrees.", 
               "Chest to the floor."
             ]);
