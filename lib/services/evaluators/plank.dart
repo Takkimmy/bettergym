@@ -1,18 +1,19 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+import '../audio_service.dart';
 import '../biomechanics_engine.dart';
 
 class PlankEvaluator extends BaseEvaluator {
-  // Positional Anchors to detect swaying and arm movement
-  Offset? _leftWristAnchor;
-  Offset? _rightWristAnchor;
+  // Positional Anchors moved to ELBOWS instead of wrists
+  Offset? _leftElbowAnchor;
+  Offset? _rightElbowAnchor;
 
   @override
   void reset() {
     super.reset();
-    _leftWristAnchor = null;
-    _rightWristAnchor = null;
+    _leftElbowAnchor = null;
+    _rightElbowAnchor = null;
   }
 
   @override
@@ -27,27 +28,25 @@ class PlankEvaluator extends BaseEvaluator {
     
     final shoulder = isLeftVisible ? landmarks[PoseLandmarkType.leftShoulder] : landmarks[PoseLandmarkType.rightShoulder];
     final elbow = isLeftVisible ? landmarks[PoseLandmarkType.leftElbow] : landmarks[PoseLandmarkType.rightElbow];
-    final wrist = isLeftVisible ? landmarks[PoseLandmarkType.leftWrist] : landmarks[PoseLandmarkType.rightWrist];
     final hip = isLeftVisible ? landmarks[PoseLandmarkType.leftHip] : landmarks[PoseLandmarkType.rightHip];
     final knee = isLeftVisible ? landmarks[PoseLandmarkType.leftKnee] : landmarks[PoseLandmarkType.rightKnee];
     final ankle = isLeftVisible ? landmarks[PoseLandmarkType.leftAnkle] : landmarks[PoseLandmarkType.rightAnkle];
     final nose = landmarks[PoseLandmarkType.nose]; 
 
-    // We track both wrists for the sway-anchor
-    final leftWrist = landmarks[PoseLandmarkType.leftWrist];
-    final rightWrist = landmarks[PoseLandmarkType.rightWrist];
+    final leftElbow = landmarks[PoseLandmarkType.leftElbow];
+    final rightElbow = landmarks[PoseLandmarkType.rightElbow];
 
+    // Wrists are explicitly removed. They will render as gray/inactive.
     final activeJoints = <PoseLandmarkType>{
       PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder,
       PoseLandmarkType.leftElbow, PoseLandmarkType.rightElbow,
-      PoseLandmarkType.leftWrist, PoseLandmarkType.rightWrist,
       PoseLandmarkType.leftHip, PoseLandmarkType.rightHip,
       PoseLandmarkType.leftKnee, PoseLandmarkType.rightKnee,
       PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle,
       PoseLandmarkType.nose, 
     };
 
-    if (shoulder == null || elbow == null || wrist == null || hip == null || knee == null || ankle == null || nose == null || leftWrist == null || rightWrist == null ||
+    if (shoulder == null || elbow == null || hip == null || knee == null || ankle == null || nose == null || leftElbow == null || rightElbow == null ||
         shoulder.likelihood < 0.5 || hip.likelihood < 0.5 || knee.likelihood < 0.5 || nose.likelihood < 0.5) {
       return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
     }
@@ -58,24 +57,24 @@ class PlankEvaluator extends BaseEvaluator {
 
     final hipHingeAngle = calculateAngle(shoulder, hip, knee);
     final kneeFlexionAngle = calculateAngle(hip, knee, ankle);
-    final elbowFlexionAngle = calculateAngle(shoulder, elbow, wrist);
+    final shoulderFlexionAngle = calculateAngle(hip, shoulder, elbow); // Tracks upper arm alignment
     final neckSpineAngle = calculateAngle(hip, shoulder, nose); 
 
+    // THE FIX: Flipped greater/less-than logic to correct the camera inversion
     double expectedHipY = shoulder.y + (hip.x - shoulder.x) * ((ankle.y - shoulder.y) / (ankle.x - shoulder.x == 0 ? 0.001 : ankle.x - shoulder.x));
-    bool isSagging = hip.y > expectedHipY;
+    bool isSagging = hip.y < expectedHipY;
 
-    // Anchor Logic: Set anchors if we don't have them yet and form is currently good
-    if (_leftWristAnchor == null && _rightWristAnchor == null && hipHingeAngle > 165.0 && kneeFlexionAngle > 160.0) {
-      _leftWristAnchor = Offset(leftWrist.x, leftWrist.y);
-      _rightWristAnchor = Offset(rightWrist.x, rightWrist.y);
+    // Anchor Logic: Set anchors to elbows if form is solid
+    if (_leftElbowAnchor == null && _rightElbowAnchor == null && hipHingeAngle > 165.0 && kneeFlexionAngle > 160.0) {
+      _leftElbowAnchor = Offset(leftElbow.x, leftElbow.y);
+      _rightElbowAnchor = Offset(rightElbow.x, rightElbow.y);
     }
 
     bool isSwaying = false;
-    if (_leftWristAnchor != null && _rightWristAnchor != null) {
-      final leftShift = math.sqrt(math.pow(leftWrist.x - _leftWristAnchor!.dx, 2) + math.pow(leftWrist.y - _leftWristAnchor!.dy, 2));
-      final rightShift = math.sqrt(math.pow(rightWrist.x - _rightWristAnchor!.dx, 2) + math.pow(rightWrist.y - _rightWristAnchor!.dy, 2));
+    if (_leftElbowAnchor != null && _rightElbowAnchor != null) {
+      final leftShift = math.sqrt(math.pow(leftElbow.x - _leftElbowAnchor!.dx, 2) + math.pow(leftElbow.y - _leftElbowAnchor!.dy, 2));
+      final rightShift = math.sqrt(math.pow(rightElbow.x - _rightElbowAnchor!.dx, 2) + math.pow(rightElbow.y - _rightElbowAnchor!.dy, 2));
       
-      // If wrists move more than 15% of torso length, they are swaying or adjusting arms
       if (leftShift > torsoLength * 0.15 || rightShift > torsoLength * 0.15) {
         isSwaying = true;
       }
@@ -93,38 +92,21 @@ class PlankEvaluator extends BaseEvaluator {
     List<String> ttsVariations = [];
     bool triggerInstantKill = false;
 
-    // 3. Clinical Heuristics
+    // 3. Clinical Heuristics (REORDERED FOR PROPER PRIORITY)
+    
+    // PRIORITY 1: Perspective
     if (shoulderWidth > torsoLength * 0.55) {
       rawFormState = -1;
       rawFaultyJoints.addAll(activeJoints);
       if (rawFormError.isEmpty) {
-        rawFormError = "Turn sideways.";
-        ttsVariations = ["Turn sideways.", "Please face sideways to the camera."];
+        rawFormError = "Look away from camera.";
+        ttsVariations = [
+          "Turn sideways. Do not look at the camera. Focus on your form and listen for the timer."
+        ];
       }
-    } else if (isSwaying) {
-      rawFormState = -1;
-      triggerInstantKill = true; // Movement in a static hold is an instant break
-      rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder, PoseLandmarkType.leftWrist, PoseLandmarkType.rightWrist]);
-      if (rawFormError.isEmpty) {
-        rawFormError = "Stop moving.";
-        ttsVariations = ["Hold still.", "Stop swaying.", "Don't move your arms."];
-      }
-    } else if (elbowFlexionAngle < 160.0) {
-      // Assumes standard high-plank. If you want forearm planks, this needs to be ~90 degrees.
-      rawFormState = -1;
-      rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.leftWrist, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow, PoseLandmarkType.rightWrist]);
-      if (rawFormError.isEmpty) {
-        rawFormError = "Arms bending.";
-        ttsVariations = ["Keep your arms straight.", "Lock your elbows.", "Don't bend your arms."];
-      }
-    } else if (kneeFlexionAngle < 160.0) {
-      rawFormState = -1;
-      rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle]);
-      if (rawFormError.isEmpty) {
-        rawFormError = "Knees bent.";
-        ttsVariations = ["Straighten your legs.", "Lock your knees out.", "Keep your legs straight."];
-      }
-    } else if (hipHingeAngle < 165.0) {
+    } 
+    // PRIORITY 2: Core/Hips (Shadowing fixed)
+    else if (hipHingeAngle < 165.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee]);
       if (rawFormError.isEmpty) {
@@ -136,12 +118,42 @@ class PlankEvaluator extends BaseEvaluator {
           ttsVariations = ["Lower your hips.", "Bring your hips down into a straight line."];
         }
       }
-    } else if (neckSpineAngle < 150.0) {
+    } 
+    // PRIORITY 3: Knees
+    else if (kneeFlexionAngle < 160.0) {
+      rawFormState = -1;
+      rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.leftAnkle, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee, PoseLandmarkType.rightAnkle]);
+      if (rawFormError.isEmpty) {
+        rawFormError = "Knees bent.";
+        ttsVariations = ["Straighten your legs.", "Lock your knees out.", "Keep your legs straight."];
+      }
+    } 
+    // PRIORITY 4: Upper Arm Alignment (Replaces straight-arm rule)
+    else if (shoulderFlexionAngle < 65.0 || shoulderFlexionAngle > 115.0) {
+      rawFormState = -1;
+      rawFaultyJoints.addAll([PoseLandmarkType.leftHip, PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
+      if (rawFormError.isEmpty) {
+        rawFormError = "Elbows misaligned.";
+        ttsVariations = ["Stack your elbows directly under your shoulders.", "Adjust your arms.", "Elbows straight down."];
+      }
+    } 
+    // PRIORITY 5: Swaying (Elbow Anchors)
+    else if (isSwaying) {
+      rawFormState = -1;
+      triggerInstantKill = true; 
+      rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightElbow]);
+      if (rawFormError.isEmpty) {
+        rawFormError = "Stop moving.";
+        ttsVariations = ["Hold still.", "Stop swaying.", "Lock your body in place."];
+      }
+    } 
+    // PRIORITY 6: Neck (Relaxed from 150 to 135)
+    else if (neckSpineAngle < 135.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.nose, PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder]);
       if (rawFormError.isEmpty) {
         rawFormError = "Head dropping.";
-        ttsVariations = ["Look at the floor between your hands.", "Keep your neck neutral.", "Lift your head."];
+        ttsVariations = ["Don't let your head hang.", "Lift your head slightly.", "Keep your neck in line with your spine."];
       }
     }
 
@@ -154,10 +166,10 @@ class PlankEvaluator extends BaseEvaluator {
       isInstantFault: triggerInstantKill
     );
 
-    // If form broke, clear the anchors so they can reset their position
+    // If form broke, clear the elbow anchors so they can adjust
     if (publishedFormState == -1) {
-      _leftWristAnchor = null;
-      _rightWristAnchor = null;
+      _leftElbowAnchor = null;
+      _rightElbowAnchor = null;
     }
 
     return {
