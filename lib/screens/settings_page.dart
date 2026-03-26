@@ -72,7 +72,7 @@ class _SettingsPageState extends State<SettingsPage> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) {
         return SizedBox(
-          height: 300,
+          height: 320, // Increased height to accommodate headers and bigger spinners
           child: Column(
             children: [
               Padding(
@@ -88,7 +88,6 @@ class _SettingsPageState extends State<SettingsPage> {
                     TextButton(
                       onPressed: () {
                         int finalSeconds = (tempMinutes * 60) + tempSeconds;
-                        // Optional: floor to 1 sec if you don't want 00:00
                         if (title == "REST TIME" && finalSeconds == 0) finalSeconds = 1; 
                         onSelected(finalSeconds);
                         Navigator.pop(context);
@@ -98,30 +97,42 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
+              
+              // NEW: Clean, anchored column headers
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 24.0),
+                child: Row(
+                  children: [
+                    Expanded(child: Text("MINUTES", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
+                    SizedBox(width: 24), // Spacer for the colon
+                    Expanded(child: Text("SECONDS", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+
               Expanded(
                 child: CupertinoTheme(
                   data: const CupertinoThemeData(
-                    textTheme: CupertinoTextThemeData(pickerTextStyle: TextStyle(color: Colors.white, fontSize: 24)),
+                    textTheme: CupertinoTextThemeData(pickerTextStyle: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)), // Increased font size
                   ),
                   child: Row(
                     children: [
-                      // MINUTES (0-9)
                       Expanded(
                         child: CupertinoPicker(
                           scrollController: FixedExtentScrollController(initialItem: tempMinutes),
-                          itemExtent: 50,
+                          itemExtent: 60, // Increased touch target height
                           onSelectedItemChanged: (idx) => tempMinutes = idx,
-                          children: List.generate(10, (idx) => Center(child: Text('${idx.toString().padLeft(2, '0')} m'))),
+                          children: List.generate(10, (idx) => Center(child: Text(idx.toString().padLeft(2, '0')))), // Numbers only
                         ),
                       ),
-                      const Text(":", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                      // SECONDS (0-59)
+                      const Text(":", style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
                       Expanded(
                         child: CupertinoPicker(
                           scrollController: FixedExtentScrollController(initialItem: tempSeconds),
-                          itemExtent: 50,
+                          itemExtent: 60, // Increased touch target height
                           onSelectedItemChanged: (idx) => tempSeconds = idx,
-                          children: List.generate(60, (idx) => Center(child: Text('${idx.toString().padLeft(2, '0')} s'))),
+                          children: List.generate(60, (idx) => Center(child: Text(idx.toString().padLeft(2, '0')))), // Numbers only
                         ),
                       ),
                     ],

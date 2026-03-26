@@ -219,11 +219,9 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
     
     int currentTarget = existingSet?.target ?? (isDuration ? 60 : 10);
 
-    // Initial values for Duration (MM:SS)
     int tempMin = isDuration ? currentTarget ~/ 60 : 0;
     int tempSec = isDuration ? currentTarget % 60 : 0;
 
-    // Initial values for Reps (Hundreds, Tens, Ones)
     int tempH = !isDuration ? currentTarget ~/ 100 : 0;
     int tempT = !isDuration ? (currentTarget % 100) ~/ 10 : 0;
     int tempO = !isDuration ? currentTarget % 10 : 0;
@@ -250,11 +248,10 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                           selectedName = val;
                           isDuration = selectedName.toLowerCase() == 'plank';
                           
-                          // Reset to defaults when switching types
                           if (isDuration) {
-                            tempMin = 1; tempSec = 0; // Default 60s
+                            tempMin = 1; tempSec = 0; 
                           } else {
-                            tempH = 0; tempT = 1; tempO = 0; // Default 10 reps
+                            tempH = 0; tempT = 1; tempO = 0; 
                           }
                         });
                       }
@@ -262,46 +259,55 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                   ),
                   const SizedBox(height: 24),
                   
-                  Text(isDuration ? "MINUTES : SECONDS" : "HUNDREDS : TENS : ONES", style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                  const SizedBox(height: 8),
+                  // NEW: Dynamic headers. Only shown for duration.
+                  if (isDuration) ...[
+                    const Row(
+                      children: [
+                        Expanded(child: Text("MINUTES", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
+                        SizedBox(width: 24),
+                        Expanded(child: Text("SECONDS", textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5))),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   
                   // --- THE MULTI-COLUMN TUMBLER UI ---
                   SizedBox(
-                    height: 120, 
+                    height: 160, // Increased height for bigger wheels
                     child: CupertinoTheme(
                       data: const CupertinoThemeData(
-                        textTheme: CupertinoTextThemeData(pickerTextStyle: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                        textTheme: CupertinoTextThemeData(pickerTextStyle: TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)), // Massive font
                       ),
                       child: isDuration 
-                        // DURATION WIDGET (MM:SS - Max 59:59)
+                        // DURATION WIDGET
                         ? Row(
                             children: [
                               Expanded(
                                 child: CupertinoPicker(
                                   scrollController: FixedExtentScrollController(initialItem: tempMin),
-                                  itemExtent: 40, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
+                                  itemExtent: 50, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
                                   onSelectedItemChanged: (idx) => tempMin = idx,
                                   children: List.generate(60, (idx) => Center(child: Text(idx.toString().padLeft(2, '0')))),
                                 ),
                               ),
-                              const Text(":", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                              const Text(":", style: TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
                               Expanded(
                                 child: CupertinoPicker(
                                   scrollController: FixedExtentScrollController(initialItem: tempSec),
-                                  itemExtent: 40, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
+                                  itemExtent: 50, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
                                   onSelectedItemChanged: (idx) => tempSec = idx,
                                   children: List.generate(60, (idx) => Center(child: Text(idx.toString().padLeft(2, '0')))),
                                 ),
                               ),
                             ],
                           )
-                        // REP WIDGET (H : T : O - Max 999)
+                        // REP WIDGET
                         : Row(
                             children: [
                               Expanded(
                                 child: CupertinoPicker(
                                   scrollController: FixedExtentScrollController(initialItem: tempH),
-                                  itemExtent: 40, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
+                                  itemExtent: 50, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
                                   onSelectedItemChanged: (idx) => tempH = idx,
                                   children: List.generate(10, (idx) => Center(child: Text(idx.toString()))),
                                 ),
@@ -309,7 +315,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                               Expanded(
                                 child: CupertinoPicker(
                                   scrollController: FixedExtentScrollController(initialItem: tempT),
-                                  itemExtent: 40, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
+                                  itemExtent: 50, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
                                   onSelectedItemChanged: (idx) => tempT = idx,
                                   children: List.generate(10, (idx) => Center(child: Text(idx.toString()))),
                                 ),
@@ -317,7 +323,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                               Expanded(
                                 child: CupertinoPicker(
                                   scrollController: FixedExtentScrollController(initialItem: tempO),
-                                  itemExtent: 40, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
+                                  itemExtent: 50, selectionOverlay: CupertinoPickerDefaultSelectionOverlay(background: mintGreen.withOpacity(0.15)),
                                   onSelectedItemChanged: (idx) => tempO = idx,
                                   children: List.generate(10, (idx) => Center(child: Text(idx.toString()))),
                                 ),
@@ -333,12 +339,10 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: mintGreen, foregroundColor: navyBlue),
                   onPressed: () {
-                    // Re-stitch the separate tumblers back into a single integer
                     int finalTarget = isDuration 
                         ? (tempMin * 60) + tempSec 
                         : (tempH * 100) + (tempT * 10) + tempO;
                     
-                    // Enforce the 001 / 00:01 minimum floor
                     if (finalTarget <= 0) finalTarget = 1;
 
                     setState(() {
@@ -363,7 +367,6 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
       },
     );
   }
-
 
   Widget _buildAddButton() {
     return ElevatedButton.icon(
