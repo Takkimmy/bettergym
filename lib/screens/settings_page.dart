@@ -165,7 +165,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 SwitchListTile(
                   title: const Text("Voice Feedback", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   subtitle: const Text("AI form corrections and cadence", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  activeColor: mintGreen,
+                  activeThumbColor: mintGreen,
                   value: _voiceEnabled,
                   onChanged: (val) {
                     setState(() => _voiceEnabled = val);

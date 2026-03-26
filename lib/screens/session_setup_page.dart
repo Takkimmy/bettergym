@@ -364,6 +364,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
     );
   }
 
+
   Widget _buildAddButton() {
     return ElevatedButton.icon(
       style: ElevatedButton.styleFrom(
