@@ -191,8 +191,12 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     _lockOrientation(); 
     
     final currentExerciseName = widget.routine.isNotEmpty ? widget.routine[_currentExerciseIndex].name : "the exercise";
-    final isPushUp = currentExerciseName.toLowerCase().contains("push");
-    final isSquat = currentExerciseName.toLowerCase().contains("squat");
+    final nameLower = currentExerciseName.toLowerCase();
+    
+    // Categorize the exercise for specific instructions
+    final isHorizontal = nameLower.contains("push") || nameLower.contains("plank");
+    final isSquat = nameLower.contains("squat");
+    final isVertical = !isHorizontal && !isSquat; // Curls, Dips, Lunges
 
     setState(() {
       _currentPhase = SessionPhase.prep;
@@ -201,38 +205,38 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     
     _triggerToast("Get Ready.", 0);
     
-if (_prepTimeSetting >= 20) {
-      if (isPushUp) {
+    if (_prepTimeSetting >= 20) {
+      if (isHorizontal) {
         AudioService.instance.speakPriority([
           "Prepare for $currentExerciseName. Ensure your whole body is visible from the side. Landscape mode is highly recommended.",
           "Next up, $currentExerciseName. Set your phone down in landscape and give me a clear side profile."
         ]);
       } else if (isSquat) {
         AudioService.instance.speakPriority([
-          "Prepare for $currentExerciseName. You can either face the camera directly, or stand sideways.",
+          "Prepare for $currentExerciseName. You can face the camera directly, or stand sideways. Portrait mode is recommended.",
           "Next up, $currentExerciseName. Face the front or face the side."
         ]);
-      } else {
+      } else if (isVertical) {
         AudioService.instance.speakPriority([
-          "Prepare for $currentExerciseName. Make sure to have a clear view of your body and joints.",
-          "The first exercise is $currentExerciseName. time to get into position."
+          "Prepare for $currentExerciseName. Portrait mode and a clear side profile are strictly required.",
+          "Next up, $currentExerciseName. Rotate your phone to portrait mode and face sideways to the camera."
         ]);
       }
     } else {
-      if (isPushUp) {
+      if (isHorizontal) {
         AudioService.instance.speakPriority([
           "Prepare for $currentExerciseName. Side profile required. Rotate to landscape.",
-          "Get ready for $currentExerciseName. Face sideways to the camera in landscape mode."
+          "Get ready for $currentExerciseName. Face sideways in landscape mode."
         ]);
       } else if (isSquat) {
         AudioService.instance.speakPriority([
           "Prepare for $currentExerciseName. Face front or side.",
           "Get ready for $currentExerciseName. Choose your angle."
         ]);
-      } else {
+      } else if (isVertical) {
         AudioService.instance.speakPriority([
-          "Prepare for $currentExerciseName.",
-          "Get ready for $currentExerciseName."
+          "Prepare for $currentExerciseName. Portrait mode and side profile required.",
+          "Get ready for $currentExerciseName. Face sideways in portrait mode."
         ]);
       }
     }
@@ -242,7 +246,7 @@ if (_prepTimeSetting >= 20) {
 
   void _startRestPhase() {
     BiomechanicsEngine.instance.reset();
-    _unlockOrientation(); 
+    _unlockOrientation(); // Unlock so they can rotate for the next exercise
 
     setState(() {
       _currentPhase = SessionPhase.rest;
@@ -250,23 +254,19 @@ if (_prepTimeSetting >= 20) {
     });
     
     final nextExerciseName = widget.routine[_currentExerciseIndex].name;
-    final isNextPushUp = nextExerciseName.toLowerCase().contains("push");
+    final nameLower = nextExerciseName.toLowerCase();
+    
+    // Give them a heads up on orientation
+    final isHorizontal = nameLower.contains("push") || nameLower.contains("plank");
+    final orientationTip = isHorizontal ? "landscape" : "portrait";
 
     _triggerToast("Rest. Next: $nextExerciseName", 0);
     
-    if (isNextPushUp) {
-      AudioService.instance.speakPriority([
-        "Set complete. Rest up. We have $nextExerciseName next. Tip: landscape orientation works best for tracking this.",
-        "Great work. $nextExerciseName is coming up. I recommend rotating your phone to landscape mode.",
-        "Take a breather. Prepare for $nextExerciseName. Landscape mode is highly recommended for push-ups.",
-      ]);
-    } else {
-      AudioService.instance.speakPriority([
-        "Set complete. Take a breather. We have $nextExerciseName next.",
-        "Great work. Rest up. $nextExerciseName is coming up.",
-        "Take a moment to catch your breath. Prepare for $nextExerciseName.",
-      ]);
-    }
+    AudioService.instance.speakPriority([
+      "Set complete. Rest up. We have $nextExerciseName next. Tip: $orientationTip orientation works best for tracking this.",
+      "Great work. $nextExerciseName is coming up. I recommend rotating your phone to $orientationTip mode.",
+      "Take a breather. Prepare for $nextExerciseName. $orientationTip mode is highly recommended.",
+    ]);
 
     _runCountdown(() => _startActivePhase());
   }
