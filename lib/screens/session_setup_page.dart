@@ -23,7 +23,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
     'Bench Dip',
     'Bicep Curl',
     'Squat',
-    'Lunge',
+    'Lunges',
     'Plank'
   ];
 

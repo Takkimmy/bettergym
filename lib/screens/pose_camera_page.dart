@@ -79,10 +79,9 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     );
     
     _verifyPermissionsAndBoot();
-    _unlockOrientation(); // Start completely unlocked
+    _unlockOrientation(); 
   }
 
-  // --- NEW: ORIENTATION LOCK MECHANICS ---
   void _lockOrientation() {
     final orientation = MediaQuery.of(context).orientation;
     if (orientation == Orientation.landscape) {
@@ -169,10 +168,8 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     } else if (_currentPhase == SessionPhase.prep) {
       _runCountdown(() => _startActivePhase());
     } else if (_currentPhase == SessionPhase.rest) {
-      _runCountdown(() {
-        setState(() => _currentExerciseIndex++);
-        _startActivePhase();
-      });
+      // THE FIX: Directly resume active phase, without advancing index
+      _runCountdown(() => _startActivePhase());
     } else if (_currentPhase == SessionPhase.active) {
       if (widget.routine[_currentExerciseIndex].isDuration) {
         _runCountdown(() => _completeExercise());
@@ -181,7 +178,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   }
 
   void _startAcquisitionPhase() {
-    _unlockOrientation(); // Free rotation while they set up
+    _unlockOrientation(); 
     setState(() {
       _currentPhase = SessionPhase.acquisition;
       _countdownSeconds = 5; 
@@ -191,7 +188,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   }
 
   void _startPrepPhase() {
-    _lockOrientation(); // Lock the UI to protect the ML Kit math
+    _lockOrientation(); 
     
     final currentExerciseName = widget.routine.isNotEmpty ? widget.routine[_currentExerciseIndex].name : "the exercise";
     final isPushUp = currentExerciseName.toLowerCase().contains("push");
@@ -204,7 +201,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     
     _triggerToast("Get Ready.", 0);
     
-    // --- UPDATED AUDIO: Explicit Squat & Push-up Instructions ---
     if (_prepTimeSetting >= 20) {
       if (isPushUp) {
         AudioService.instance.speakPriority([
@@ -246,30 +242,30 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
   void _startRestPhase() {
     BiomechanicsEngine.instance.reset();
-    _unlockOrientation(); // Unlock so they can rotate for the next exercise
+    _unlockOrientation(); 
 
     setState(() {
       _currentPhase = SessionPhase.rest;
       _countdownSeconds = _restTimeSetting;
     });
-    _triggerToast("Rest.", 0);
+    
+    // The index has already been incremented, so this reads correctly
+    final nextExerciseName = widget.routine[_currentExerciseIndex].name;
+    _triggerToast("Rest. Next: $nextExerciseName", 0);
     
     AudioService.instance.speakPriority([
-      "Set complete. Take a breather.",
-      "Great work. Rest and recover.",
-      "Take a moment to catch your breath.",
-      "Excellent effort. Time to rest.",
-      "Relax your muscles. Rest period starting."
+      "Set complete. Take a breather. We have $nextExerciseName next.",
+      "Great work. Rest up. $nextExerciseName is coming up.",
+      "Take a moment to catch your breath. Prepare for $nextExerciseName.",
     ]);
 
-    _runCountdown(() {
-      setState(() => _currentExerciseIndex++);
-      _startPrepPhase(); // Triggers prep audio instead of jumping straight to active
-    });
+    // THE FIX: Rest flows directly into Active. No Prep Phase loop.
+    _runCountdown(() => _startActivePhase());
   }
 
   void _startActivePhase() {
     BiomechanicsEngine.instance.reset();
+    _lockOrientation(); // Re-lock just in case they rotated during rest
     _previousFormState = 1;
     _formBreakSeconds = [];
 
@@ -284,6 +280,18 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     if (currentExercise.isDuration) {
       _runCountdown(() => _completeExercise());
     } 
+  }
+
+  // --- THE FIX: INDEX INCREMENTS HERE ---
+  void _completeExercise() {
+    if (_currentExerciseIndex < widget.routine.length - 1) {
+      setState(() => _currentExerciseIndex++); // Advance index before resting
+      _startRestPhase();
+    } else {
+      setState(() => _currentPhase = SessionPhase.finished);
+      AudioService.instance.playFinishSound(); 
+      _exitSession(isCompleted: true);
+    }
   }
 
   void _runCountdown(VoidCallback onComplete) {
@@ -320,19 +328,14 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
           _countdownSeconds--;
           
           if ((_currentPhase == SessionPhase.prep || _currentPhase == SessionPhase.rest)) {
-            final currentExerciseName = widget.routine.isNotEmpty ? widget.routine[_currentExerciseIndex].name : "the exercise";
+            final upcomingExerciseName = widget.routine[_currentExerciseIndex].name;
 
+            // --- THE FIX: Merged 10-second warning ---
             if (_countdownSeconds == 10) {
               AudioService.instance.speakPriority([
-                "Ten seconds remaining.",
-                "Ten seconds to go."
-              ]);
-            } else if (_countdownSeconds == 7) {
-              AudioService.instance.speakPriority([
-                "Assume the starting position for $currentExerciseName.",
-                "Seven seconds. Get into position.",
-                "Set up for $currentExerciseName now.",
-                "Move into your starting form."
+                "Ten seconds remaining. Assume the starting position for $upcomingExerciseName.",
+                "Ten seconds. Get into position for $upcomingExerciseName.",
+                "Ten seconds to go. Set up for $upcomingExerciseName now."
               ]);
             } else if (_countdownSeconds <= 3 && _countdownSeconds > 0) {
               AudioService.instance.playLeadInBeep();
@@ -348,16 +351,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         }
       });
     });
-  }
-
-  void _completeExercise() {
-    if (_currentExerciseIndex < widget.routine.length - 1) {
-      _startRestPhase();
-    } else {
-      setState(() => _currentPhase = SessionPhase.finished);
-      AudioService.instance.playFinishSound(); 
-      _exitSession(isCompleted: true);
-    }
   }
 
   void _triggerToast(String message, int state) {
@@ -545,7 +538,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     WakelockPlus.disable(); 
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     
-    // Calculate how many exercises were fully completed
     int completedCount = isCompleted ? widget.routine.length : _currentExerciseIndex;
     
     Navigator.pushReplacement(
@@ -622,11 +614,12 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     final isAcquisition = _currentPhase == SessionPhase.acquisition;
     final isPrep = _currentPhase == SessionPhase.prep;
     
+    // --- THE FIX: We no longer need to check `+ 1` for the rest phase because the index is already incremented
     String nextExerciseName = "";
     if ((isAcquisition || isPrep) && widget.routine.isNotEmpty) {
       nextExerciseName = widget.routine[_currentExerciseIndex].name;
-    } else if (_currentPhase == SessionPhase.rest && _currentExerciseIndex + 1 < widget.routine.length) {
-      nextExerciseName = widget.routine[_currentExerciseIndex + 1].name;
+    } else if (_currentPhase == SessionPhase.rest && _currentExerciseIndex < widget.routine.length) {
+      nextExerciseName = widget.routine[_currentExerciseIndex].name;
     }
 
     final displayStatus = isAcquisition 
