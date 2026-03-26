@@ -70,6 +70,14 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   int _previousFormState = 1; 
   List<int> _formBreakSeconds = []; 
 
+  // --- NEW: TELEMETRY TRACKERS ---
+  late List<ExerciseTelemetry> _sessionTelemetry;
+  DateTime? _sessionStartTime;
+  
+  // To average the form score across a single rep
+  double _currentRepScoreAccumulator = 0.0;
+  int _currentRepFrameCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -129,9 +137,15 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     setState(() {
       _prepTimeSetting = prefs.getInt('prep_time') ?? 10;
       _restTimeSetting = prefs.getInt('rest_time') ?? 30;
+      
+      // Initialize the telemetry array based on the routine
+      _sessionTelemetry = widget.routine.map((ex) => 
+        ExerciseTelemetry(name: ex.name, isDuration: ex.isDuration, target: ex.target)
+      ).toList();
     });
 
     if (widget.routine.isNotEmpty) {
+      _sessionStartTime = DateTime.now(); // Start the master clock
       _startAcquisitionPhase();
     } else {
       _exitSession();
@@ -168,7 +182,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     } else if (_currentPhase == SessionPhase.prep) {
       _runCountdown(() => _startActivePhase());
     } else if (_currentPhase == SessionPhase.rest) {
-      // THE FIX: Directly resume active phase, without advancing index
       _runCountdown(() => _startActivePhase());
     } else if (_currentPhase == SessionPhase.active) {
       if (widget.routine[_currentExerciseIndex].isDuration) {
@@ -217,7 +230,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
           "Next up, $currentExerciseName. Face the front or face the side."
         ]);
       } else if (isLunge) {
-        // THE NEW LUNGE AUDIO
         AudioService.instance.speakPriority([
           "Prepare for $currentExerciseName. To avoid blocking your legs from the camera, face left to lunge with your left leg, and face right to lunge with your right leg.",
           "Next up, $currentExerciseName. Face left for your left leg, and face right for your right leg. Portrait mode required."
@@ -240,7 +252,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
           "Get ready for $currentExerciseName. Choose your angle."
         ]);
       } else if (isLunge) {
-        // THE NEW LUNGE AUDIO (Short version)
         AudioService.instance.speakPriority([
           "Prepare for $currentExerciseName. Face left for left leg, right for right leg.",
           "Get ready for $currentExerciseName. Face the side your front leg is on."
@@ -258,7 +269,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
 
   void _startRestPhase() {
     BiomechanicsEngine.instance.reset();
-    _unlockOrientation(); // Unlock so they can rotate for the next exercise
+    _unlockOrientation(); 
 
     setState(() {
       _currentPhase = SessionPhase.rest;
@@ -268,7 +279,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     final nextExerciseName = widget.routine[_currentExerciseIndex].name;
     final nameLower = nextExerciseName.toLowerCase();
     
-    // Give them a heads up on orientation
     final isHorizontal = nameLower.contains("push") || nameLower.contains("plank");
     final orientationTip = isHorizontal ? "landscape" : "portrait";
 
@@ -285,7 +295,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
   
   void _startActivePhase() {
     BiomechanicsEngine.instance.reset();
-    _lockOrientation(); // Re-lock just in case they rotated during rest
+    _lockOrientation(); 
     _previousFormState = 1;
     _formBreakSeconds = [];
 
@@ -302,10 +312,9 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     } 
   }
 
-  // --- THE FIX: INDEX INCREMENTS HERE ---
   void _completeExercise() {
     if (_currentExerciseIndex < widget.routine.length - 1) {
-      setState(() => _currentExerciseIndex++); // Advance index before resting
+      setState(() => _currentExerciseIndex++); 
       _startRestPhase();
     } else {
       setState(() => _currentPhase = SessionPhase.finished);
@@ -334,8 +343,14 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         }
 
         if (_currentPhase == SessionPhase.active && widget.routine[_currentExerciseIndex].isDuration) {
+          // --- THE FIX: ADDED PLANK TELEMETRY LOGGING ---
           if (_formState != -1) { 
             _repsOrSecondsRemaining--;
+            
+            // Log a good second based on the current thermometer reading
+            _sessionTelemetry[_currentExerciseIndex].repScores.add(_formScore);
+            _sessionTelemetry[_currentExerciseIndex].goodReps++;
+
             AudioService.instance.playTick(); 
 
             if (_repsOrSecondsRemaining <= 0) {
@@ -343,6 +358,10 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
               AudioService.instance.playChime(); 
               _completeExercise();
             }
+          } else {
+            // Log a failed second
+            _sessionTelemetry[_currentExerciseIndex].repScores.add(0.0);
+            _sessionTelemetry[_currentExerciseIndex].badReps++;
           }
         } else {
           _countdownSeconds--;
@@ -350,7 +369,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
           if ((_currentPhase == SessionPhase.prep || _currentPhase == SessionPhase.rest)) {
             final upcomingExerciseName = widget.routine[_currentExerciseIndex].name;
 
-            // --- THE FIX: Merged 10-second warning ---
             if (_countdownSeconds == 10) {
               AudioService.instance.speakPriority([
                 "Ten seconds remaining. Assume the starting position for $upcomingExerciseName.",
@@ -492,16 +510,38 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
           }
           _previousFormState = _formState;
 
+          // --- THE FIX: Cleaned up the nested logic and brackets ---
           if (!currentExercise.isDuration) {
+            // Accumulate the form score while the rep is active
+            _currentRepScoreAccumulator += _formScore;
+            _currentRepFrameCount++;
+
             if (analysis['goodRepTriggered'] == true) {
               _repsOrSecondsRemaining--;
+              
+              // Calculate the average score for this specific rep
+              double averageRepScore = _currentRepFrameCount > 0 ? (_currentRepScoreAccumulator / _currentRepFrameCount) : 1.0;
+              _sessionTelemetry[_currentExerciseIndex].repScores.add(averageRepScore);
+              _sessionTelemetry[_currentExerciseIndex].goodReps++;
+              
+              // Reset accumulator for the next rep
+              _currentRepScoreAccumulator = 0.0;
+              _currentRepFrameCount = 0;
+
               AudioService.instance.playChime();
               
               if (_repsOrSecondsRemaining <= 0) {
                 _completeExercise();
               }
             } else if (analysis['badRepTriggered'] == true) {
-              _badRepsSessionCount++;
+              // Failed rep logs a hard 0.0 score
+              _sessionTelemetry[_currentExerciseIndex].repScores.add(0.0);
+              _sessionTelemetry[_currentExerciseIndex].badReps++;
+              
+              // Reset accumulator
+              _currentRepScoreAccumulator = 0.0;
+              _currentRepFrameCount = 0;
+
               _triggerToast("Invalid Rep: Watch your form!", -1);
             }
           }
@@ -558,15 +598,18 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     WakelockPlus.disable(); 
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     
-    int completedCount = isCompleted ? widget.routine.length : _currentExerciseIndex;
+    // Calculate final workout duration
+    Duration finalDuration = const Duration(seconds: 0);
+    if (_sessionStartTime != null) {
+      finalDuration = DateTime.now().difference(_sessionStartTime!);
+    }
     
     Navigator.pushReplacement(
       context, 
       MaterialPageRoute(builder: (_) => SessionSummaryPage(
         isCompleted: isCompleted,
-        formBreaks: _badRepsSessionCount,
-        completedExercises: completedCount,
-        totalExercises: widget.routine.length,
+        telemetryData: _sessionTelemetry,
+        totalDuration: finalDuration,
       )) 
     );
   }
@@ -634,7 +677,6 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
     final isAcquisition = _currentPhase == SessionPhase.acquisition;
     final isPrep = _currentPhase == SessionPhase.prep;
     
-    // --- THE FIX: We no longer need to check `+ 1` for the rest phase because the index is already incremented
     String nextExerciseName = "";
     if ((isAcquisition || isPrep) && widget.routine.isNotEmpty) {
       nextExerciseName = widget.routine[_currentExerciseIndex].name;

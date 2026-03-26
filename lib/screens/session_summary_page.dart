@@ -2,60 +2,66 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import 'session_setup_page.dart';
 
+// --- THE TELEMETRY DATA MODEL ---
+class ExerciseTelemetry {
+  final String name;
+  final bool isDuration;
+  final int target;
+  int goodReps = 0;
+  int badReps = 0;
+  List<double> repScores = []; // Holds the 0.0 to 1.0 score for every single rep/second
+
+  ExerciseTelemetry({required this.name, required this.isDuration, required this.target});
+
+  // Averages all the attempts (including the 0.0s from bad reps) into a 1-100 score
+  int get finalScore {
+    if (repScores.isEmpty) return 0;
+    double sum = repScores.fold(0, (p, c) => p + c);
+    return ((sum / repScores.length) * 100).round();
+  }
+}
+
 class SessionSummaryPage extends StatelessWidget {
   final bool isCompleted;
-  final int formBreaks;
-  final int completedExercises;
-  final int totalExercises;
+  final List<ExerciseTelemetry> telemetryData;
+  final Duration totalDuration;
 
   const SessionSummaryPage({
     super.key, 
     required this.isCompleted,
-    required this.formBreaks,
-    required this.completedExercises,
-    required this.totalExercises,
+    required this.telemetryData,
+    required this.totalDuration,
   });
 
-  String _calculateGrade() {
-    if (completedExercises == 0) return "N/A";
+  int _calculateGlobalScore() {
+    if (telemetryData.isEmpty) return 0;
     
-    // Calculate an average of form breaks per exercise
-    double breaksPerExercise = formBreaks / completedExercises;
+    // Only average the sets that the user actually attempted
+    final attemptedSets = telemetryData.where((t) => t.repScores.isNotEmpty).toList();
+    if (attemptedSets.isEmpty) return 0;
 
-    if (breaksPerExercise == 0) return "S"; // Flawless
-    if (breaksPerExercise <= 1.0) return "A";
-    if (breaksPerExercise <= 2.5) return "B";
-    if (breaksPerExercise <= 4.0) return "C";
-    return "D";
+    int totalScore = attemptedSets.fold(0, (sum, set) => sum + set.finalScore);
+    return (totalScore / attemptedSets.length).round();
   }
 
-  Color _getGradeColor(String grade) {
-    switch (grade) {
-      case "S": return Colors.purpleAccent;
-      case "A": return mintGreen;
-      case "B": return Colors.blueAccent;
-      case "C": return Colors.orangeAccent;
-      case "D": return neonRed;
-      default: return Colors.grey;
-    }
+  int _calculateTotalVolume() {
+    return telemetryData.fold(0, (sum, set) => sum + set.goodReps);
   }
 
-  String _getFeedbackText(String grade) {
-    if (!isCompleted) return "Session aborted early. Rest up and try again.";
-    switch (grade) {
-      case "S": return "Biomechanical perfection. Not a single form break.";
-      case "A": return "Excellent session. Form was consistently solid.";
-      case "B": return "Good work. A few form breaks, but overall strong.";
-      case "C": return "You got it done, but form degraded. Lower the target next time.";
-      case "D": return "Form was highly unstable. Focus on technique over volume.";
-      default: return "Session complete.";
-    }
+  String _formatDuration(Duration d) {
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    String twoDigitMinutes = twoDigits(d.inMinutes.remainder(60));
+    String twoDigitSeconds = twoDigits(d.inSeconds.remainder(60));
+    if (d.inHours > 0) return "${d.inHours}:$twoDigitMinutes:$twoDigitSeconds";
+    return "$twoDigitMinutes:$twoDigitSeconds";
   }
 
   @override
   Widget build(BuildContext context) {
-    final String grade = _calculateGrade();
-    final Color gradeColor = _getGradeColor(grade);
+    final int globalScore = _calculateGlobalScore();
+    final int totalSets = telemetryData.length;
+    final int attemptedSets = telemetryData.where((t) => t.repScores.isNotEmpty).length;
+    final int completedSets = isCompleted ? totalSets : (attemptedSets > 0 ? attemptedSets - 1 : 0);
 
     return Scaffold(
       backgroundColor: navyBlue,
@@ -65,12 +71,12 @@ class SessionSummaryPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- HEADER ---
+              // --- HEADER (Strictly Neutral) ---
               Text(
                 isCompleted ? "SESSION COMPLETE" : "SESSION ABORTED",
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: isCompleted ? mintGreen : neonRed,
+                  color: isCompleted ? mintGreen : Colors.orangeAccent,
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
                   letterSpacing: 4.0,
@@ -78,62 +84,65 @@ class SessionSummaryPage extends StatelessWidget {
               ),
               const SizedBox(height: 48),
 
-              // --- THE GRADE BADGE ---
+              // --- THE 1-100 SCORE ---
               Center(
                 child: Container(
-                  width: 160,
-                  height: 160,
+                  width: 180,
+                  height: 180,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: darkSlate,
-                    border: Border.all(color: gradeColor, width: 6),
+                    border: Border.all(color: globalScore > 75 ? mintGreen : (globalScore > 50 ? Colors.orangeAccent : neonRed), width: 6),
                     boxShadow: [
-                      BoxShadow(color: gradeColor.withOpacity(0.3), blurRadius: 30, spreadRadius: 5),
+                      BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 30, spreadRadius: 5),
                     ]
                   ),
                   child: Center(
-                    child: Text(
-                      grade,
-                      style: TextStyle(
-                        color: gradeColor,
-                        fontSize: 72,
-                        fontWeight: FontWeight.bold,
-                      ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          globalScore.toString(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 72,
+                            fontWeight: FontWeight.bold,
+                            height: 1.0
+                          ),
+                        ),
+                        const Text("SCORE", style: TextStyle(color: Colors.grey, fontSize: 14, letterSpacing: 2.0)),
+                      ],
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 32),
-
-              // --- DYNAMIC FEEDBACK ---
-              Text(
-                _getFeedbackText(grade),
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 16, height: 1.5),
-              ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 64),
 
               // --- TELEMETRY GRID ---
               Row(
                 children: [
                   Expanded(
                     child: _buildStatCard(
-                      title: "PROGRESS",
-                      value: "$completedExercises / $totalExercises",
-                      icon: Icons.checklist,
-                      color: Colors.blueAccent,
+                      title: "SETS COMPLETED",
+                      value: "$completedSets / $totalSets",
+                      icon: Icons.layers,
                     ),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
                     child: _buildStatCard(
-                      title: "FORM BREAKS",
-                      value: formBreaks.toString(),
-                      icon: Icons.warning_amber_rounded,
-                      color: formBreaks == 0 ? mintGreen : neonRed,
+                      title: "TOTAL VOLUME",
+                      value: _calculateTotalVolume().toString(),
+                      icon: Icons.fitness_center,
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 16),
+              _buildStatCard(
+                title: "TOTAL DURATION",
+                value: _formatDuration(totalDuration),
+                icon: Icons.timer,
               ),
               
               const Spacer(),
@@ -146,8 +155,8 @@ class SessionSummaryPage extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(vertical: 20),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                 ),
-                icon: const Icon(Icons.home, size: 28),
-                label: const Text("RETURN TO SETUP", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2.0)),
+                icon: const Icon(Icons.arrow_forward, size: 28),
+                label: const Text("CONTINUE", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: 2.0)),
                 onPressed: () {
                   Navigator.pushAndRemoveUntil(
                     context,
@@ -163,7 +172,7 @@ class SessionSummaryPage extends StatelessWidget {
     );
   }
 
-  Widget _buildStatCard({required String title, required String value, required IconData icon, required Color color}) {
+  Widget _buildStatCard({required String title, required String value, required IconData icon}) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -176,7 +185,7 @@ class SessionSummaryPage extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(icon, color: color, size: 20),
+              Icon(icon, color: mintGreen, size: 20),
               const SizedBox(width: 8),
               Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.0)),
             ],
