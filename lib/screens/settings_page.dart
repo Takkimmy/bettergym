@@ -14,7 +14,8 @@ class _SettingsPageState extends State<SettingsPage> {
   int _prepTime = 10;
   int _restTime = 30;
   bool _voiceEnabled = true;
-  double _volume = 1.0;
+  double _feedbackVolume = 1.0;
+  double _beepsVolume = 1.0;
   bool _isLoading = true;
 
   @override
@@ -29,7 +30,8 @@ class _SettingsPageState extends State<SettingsPage> {
       _prepTime = prefs.getInt('prep_time') ?? 10;
       _restTime = prefs.getInt('rest_time') ?? 30;
       _voiceEnabled = prefs.getBool('voice_enabled') ?? true;
-      _volume = prefs.getDouble('master_volume') ?? 1.0;
+      _feedbackVolume = prefs.getDouble('feedback_volume') ?? 1.0;
+      _beepsVolume = prefs.getDouble('beeps_volume') ?? 1.0;
       _isLoading = false;
     });
   }
@@ -49,14 +51,20 @@ class _SettingsPageState extends State<SettingsPage> {
     await prefs.setDouble(key, value);
   }
 
-  // --- THE ALARM CLOCK SCROLLING WHEEL ---
-  void _showScrollPicker({
+  String _formatTime(int totalSeconds) {
+    int m = totalSeconds ~/ 60;
+    int s = totalSeconds % 60;
+    return "${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}";
+  }
+
+  // --- DUAL-COLUMN TUMBLER FOR MM:SS ---
+  void _showDualColumnPicker({
     required String title,
-    required int currentValue,
-    required int maxLimit,
+    required int currentSeconds,
     required Function(int) onSelected,
   }) {
-    int tempValue = currentValue;
+    int tempMinutes = currentSeconds ~/ 60;
+    int tempSeconds = currentSeconds % 60;
 
     showModalBottomSheet(
       context: context,
@@ -79,7 +87,10 @@ class _SettingsPageState extends State<SettingsPage> {
                     Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                     TextButton(
                       onPressed: () {
-                        onSelected(tempValue);
+                        int finalSeconds = (tempMinutes * 60) + tempSeconds;
+                        // Optional: floor to 1 sec if you don't want 00:00
+                        if (title == "REST TIME" && finalSeconds == 0) finalSeconds = 1; 
+                        onSelected(finalSeconds);
                         Navigator.pop(context);
                       },
                       child: const Text("SAVE", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold)),
@@ -90,19 +101,30 @@ class _SettingsPageState extends State<SettingsPage> {
               Expanded(
                 child: CupertinoTheme(
                   data: const CupertinoThemeData(
-                    textTheme: CupertinoTextThemeData(
-                      pickerTextStyle: TextStyle(color: Colors.white, fontSize: 24),
-                    ),
+                    textTheme: CupertinoTextThemeData(pickerTextStyle: TextStyle(color: Colors.white, fontSize: 24)),
                   ),
-                  child: CupertinoPicker(
-                    scrollController: FixedExtentScrollController(initialItem: currentValue - 1),
-                    itemExtent: 50,
-                    onSelectedItemChanged: (index) {
-                      tempValue = index + 1;
-                    },
-                    children: List.generate(maxLimit, (index) {
-                      return Center(child: Text('${index + 1} sec'));
-                    }),
+                  child: Row(
+                    children: [
+                      // MINUTES (0-9)
+                      Expanded(
+                        child: CupertinoPicker(
+                          scrollController: FixedExtentScrollController(initialItem: tempMinutes),
+                          itemExtent: 50,
+                          onSelectedItemChanged: (idx) => tempMinutes = idx,
+                          children: List.generate(10, (idx) => Center(child: Text('${idx.toString().padLeft(2, '0')} m'))),
+                        ),
+                      ),
+                      const Text(":", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                      // SECONDS (0-59)
+                      Expanded(
+                        child: CupertinoPicker(
+                          scrollController: FixedExtentScrollController(initialItem: tempSeconds),
+                          itemExtent: 50,
+                          onSelectedItemChanged: (idx) => tempSeconds = idx,
+                          children: List.generate(60, (idx) => Center(child: Text('${idx.toString().padLeft(2, '0')} s'))),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -122,18 +144,16 @@ class _SettingsPageState extends State<SettingsPage> {
     return Scaffold(
       backgroundColor: navyBlue,
       appBar: AppBar(
+        automaticallyImplyLeading: false, // REMOVES THE BACK BUTTON
         backgroundColor: navyBlue,
         title: const Text('SETTINGS', style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 2.0)),
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
+        centerTitle: true,
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // --- AUDIO CONTROLS RESTORED ---
+          // --- AUDIO CONTROLS (SPLIT MIXER) ---
           const Padding(
             padding: EdgeInsets.only(left: 16, bottom: 8, top: 8),
             child: Text("AUDIO", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
@@ -154,26 +174,33 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 const Divider(color: Colors.grey, height: 1),
                 ListTile(
-                  title: const Text("Master Volume", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  title: const Text("Feedback Volume", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                   subtitle: SliderTheme(
                     data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: mintGreen,
-                      inactiveTrackColor: Colors.grey.shade800,
-                      thumbColor: Colors.white,
+                      activeTrackColor: mintGreen, inactiveTrackColor: Colors.grey.shade800, thumbColor: Colors.white,
                     ),
                     child: Slider(
-                      value: _volume,
-                      min: 0.0,
-                      max: 1.0,
-                      onChanged: (val) {
-                        setState(() => _volume = val);
-                      },
-                      onChangeEnd: (val) {
-                        _saveDoubleSetting('master_volume', val);
-                      },
+                      value: _feedbackVolume, min: 0.0, max: 1.0,
+                      onChanged: (val) => setState(() => _feedbackVolume = val),
+                      onChangeEnd: (val) => _saveDoubleSetting('feedback_volume', val),
                     ),
                   ),
-                  trailing: Icon(_volume == 0 ? Icons.volume_off : Icons.volume_up, color: mintGreen),
+                  trailing: Icon(_feedbackVolume == 0 ? Icons.volume_off : Icons.record_voice_over, color: mintGreen, size: 20),
+                ),
+                const Divider(color: Colors.grey, height: 1),
+                ListTile(
+                  title: const Text("Beeps Volume", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                  subtitle: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: Colors.blueAccent, inactiveTrackColor: Colors.grey.shade800, thumbColor: Colors.white,
+                    ),
+                    child: Slider(
+                      value: _beepsVolume, min: 0.0, max: 1.0,
+                      onChanged: (val) => setState(() => _beepsVolume = val),
+                      onChangeEnd: (val) => _saveDoubleSetting('beeps_volume', val),
+                    ),
+                  ),
+                  trailing: Icon(_beepsVolume == 0 ? Icons.notifications_off : Icons.notifications_active, color: Colors.blueAccent, size: 20),
                 ),
               ],
             ),
@@ -181,10 +208,10 @@ class _SettingsPageState extends State<SettingsPage> {
 
           const SizedBox(height: 32),
 
-          // --- TIMER CONTROLS ---
+          // --- TIMER CONTROLS (MM:SS) ---
           const Padding(
             padding: EdgeInsets.only(left: 16, bottom: 8),
-            child: Text("TIMERS", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            child: Text("TIMERS (MM:SS)", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
           ),
           Container(
             decoration: BoxDecoration(color: darkSlate, borderRadius: BorderRadius.circular(12)),
@@ -193,12 +220,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 ListTile(
                   title: const Text("Preparation Time", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   subtitle: const Text("Countdown before exercise starts", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  trailing: Text("$_prepTime sec", style: const TextStyle(color: mintGreen, fontSize: 16, fontWeight: FontWeight.bold)),
+                  trailing: Text(_formatTime(_prepTime), style: const TextStyle(color: mintGreen, fontSize: 18, fontWeight: FontWeight.bold)),
                   onTap: () {
-                    _showScrollPicker(
+                    _showDualColumnPicker(
                       title: "PREP TIME",
-                      currentValue: _prepTime,
-                      maxLimit: 60,
+                      currentSeconds: _prepTime,
                       onSelected: (val) {
                         setState(() => _prepTime = val);
                         _saveIntSetting('prep_time', val);
@@ -210,12 +236,11 @@ class _SettingsPageState extends State<SettingsPage> {
                 ListTile(
                   title: const Text("Rest Time", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   subtitle: const Text("Cooldown between sets", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                  trailing: Text("$_restTime sec", style: const TextStyle(color: mintGreen, fontSize: 16, fontWeight: FontWeight.bold)),
+                  trailing: Text(_formatTime(_restTime), style: const TextStyle(color: mintGreen, fontSize: 18, fontWeight: FontWeight.bold)),
                   onTap: () {
-                    _showScrollPicker(
+                    _showDualColumnPicker(
                       title: "REST TIME",
-                      currentValue: _restTime,
-                      maxLimit: 180,
+                      currentSeconds: _restTime,
                       onSelected: (val) {
                         setState(() => _restTime = val);
                         _saveIntSetting('rest_time', val);
