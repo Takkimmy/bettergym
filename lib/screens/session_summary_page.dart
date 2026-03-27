@@ -141,7 +141,7 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> {
       backgroundColor: navyBlue,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0), // Reduced vertical padding
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -156,9 +156,9 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> {
                   letterSpacing: 4.0,
                 ),
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 24), // Cut down from 48
 
-              // --- THE GLOWING SCORE ---
+              // --- THE GLOWING SCORE (Untouched) ---
               Center(
                 child: Container(
                   width: 200,
@@ -192,20 +192,20 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> {
                   ),
                 ),
               ),
-              const SizedBox(height: 64),
+              const SizedBox(height: 32), // Cut down from 64
 
-              // --- TELEMETRY GRID ---
+              // --- COMPACT TELEMETRY GRID ---
               Row(
                 children: [
                   Expanded(child: _buildStatCard(title: "SETS", value: "$completedSets / $totalSets", icon: Icons.layers)),
-                  const SizedBox(width: 16),
-                  Expanded(child: _buildStatCard(title: "VOLUME", value: _calculateTotalVolume().toString(), icon: Icons.fitness_center)),
+                  const SizedBox(width: 12), // Tighter horizontal gap
+                  Expanded(child: _buildStatCard(title: "TOTAL REPS", value: _calculateTotalVolume().toString(), icon: Icons.fitness_center)),
                 ],
               ),
-              const SizedBox(height: 16),
-              _buildStatCard(title: "TOTAL DURATION", value: _formatDuration(widget.totalDuration), icon: Icons.timer, isWide: true),
+              const SizedBox(height: 12), // Tighter vertical gap
+              _buildStatCard(title: "EXERCISE DURATION", value: _formatDuration(widget.totalDuration), icon: Icons.timer, isWide: true),
               
-              const Spacer(),
+              const Spacer(), // This will now dynamically push the buttons to the bottom without overflowing
 
               // --- DYNAMIC DUAL NAVIGATION ---
               if (_isSaving)
@@ -215,7 +215,7 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> {
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: mintGreen, foregroundColor: navyBlue,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    padding: const EdgeInsets.symmetric(vertical: 16), // Slightly tighter buttons
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   onPressed: () => _processAndSaveData(() {
@@ -227,7 +227,7 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> {
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white, side: BorderSide(color: Colors.grey.shade700, width: 2),
-                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   onPressed: () => _processAndSaveData(() {
@@ -240,11 +240,14 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> {
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: mintGreen, foregroundColor: navyBlue,
-                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   onPressed: () => _processAndSaveData(() {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => ProgressReportPage(telemetryData: widget.telemetryData, globalScore: globalScore, totalDuration: widget.totalDuration,
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => ProgressReportPage(
+                      telemetryData: widget.telemetryData,
+                      globalScore: globalScore,
+                      totalDuration: widget.totalDuration,
                     )));
                   }),
                   child: const Text("PROGRESS REPORT", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 2.0)),
@@ -253,7 +256,7 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> {
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white, side: BorderSide(color: Colors.grey.shade700, width: 2),
-                    padding: const EdgeInsets.symmetric(vertical: 18),
+                    padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
                   onPressed: () => _processAndSaveData(() {
@@ -271,10 +274,10 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> {
 
   Widget _buildStatCard({required String title, required String value, required IconData icon, bool isWide = false}) {
     return Container(
-      padding: EdgeInsets.all(isWide ? 24 : 20),
+      padding: const EdgeInsets.all(16), // Slashed padding for a tighter footprint
       decoration: BoxDecoration(
         color: darkSlate,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16), // Slightly tighter border radius
         border: Border.all(color: Colors.white.withOpacity(0.05)),
       ),
       child: Column(
@@ -282,19 +285,18 @@ class _SessionSummaryPageState extends State<SessionSummaryPage> {
         children: [
           Row(
             children: [
-              Icon(icon, color: mintGreen, size: 20),
+              Icon(icon, color: mintGreen, size: 18), // Shrunk icon slightly
               const SizedBox(width: 8),
-              Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+              Text(title, style: const TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8), // Tighter gap before the number
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
-            child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 36, fontWeight: FontWeight.bold)),
+            child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)), // Shrunk font from 36 to 28
           ),
         ],
       ),
     );
   }
-}
