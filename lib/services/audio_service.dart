@@ -129,8 +129,8 @@ class AudioService {
   // --- STANDARD WORKOUT SFX ---
   void playTick() => _playOnChannel(_tickPlayer, 'sounds/tick.mp3');
   void playChime() => _playOnChannel(_chimePlayer, 'sounds/chime.mp3');
-  void playLeadInBeep() => _playOnChannel(_beepPlayer, 'sounds/beep_low.mp3');
-  void playGoBeep() => _playOnChannel(_beepPlayer, 'sounds/beep_high.mp3');
+  void playLeadInBeep() => _playOnChannel(_beepPlayer, 'sounds/beep.mp3');
+  void playGoBeep() => _playOnChannel(_beepPlayer, 'sounds/go.mp3');
 
   // --- SYSTEM SFX ---
   void playPauseSound() => _playOnChannel(_uiPlayer, 'sounds/pause.mp3');
