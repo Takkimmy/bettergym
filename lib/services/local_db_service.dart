@@ -102,4 +102,44 @@ class LocalDBService {
       orderBy: 'created_at ASC', 
     );
   }
+  
+  // --- INJECT DOWNLOADED HISTORY ---
+  Future<void> saveDownloadedHistory(List<dynamic> serverSessions) async {
+    final db = await database;
+    
+    // We run this as a massive batch transaction for speed
+    await db.transaction((txn) async {
+      for (var session in serverSessions) {
+        // Prepare the session row
+        final Map<String, dynamic> sessionData = {
+          'id': session['id'],
+          'user_id': session['user_id'],
+          'routine_id': session['routine_id'],
+          'status': session['status'],
+          'global_score': session['global_score'],
+          'duration_seconds': session['duration_seconds'],
+          'sync_status': 1, // ALREADY SYNCED
+          'created_at': session['created_at'],
+        };
+
+        // ConflictAlgorithm.replace prevents crashes if the data already exists locally
+        await txn.insert('workout_sessions', sessionData, conflictAlgorithm: ConflictAlgorithm.replace);
+
+        // Prepare the child telemetry rows
+        List<dynamic> exercises = session['exercises'] ?? [];
+        for (var ex in exercises) {
+          final Map<String, dynamic> exData = {
+            'id': ex['id'],
+            'session_id': ex['session_id'],
+            'exercise_name': ex['exercise_name'],
+            'good_reps': ex['good_reps'],
+            'bad_reps': ex['bad_reps'],
+            'exercise_score': ex['exercise_score'],
+            'rep_scores_array': jsonEncode(ex['rep_scores']), // Re-stringify for SQLite
+          };
+          await txn.insert('exercise_telemetry', exData, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
+    });
+  }
 }

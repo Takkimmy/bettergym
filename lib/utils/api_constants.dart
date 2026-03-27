@@ -16,4 +16,5 @@ class ApiConstants {
 
   // Endpoint routes
   static String get syncSessionEndpoint => '$baseUrl/sync_session.php';
+  static String get fetchHistoryEndpoint => '$baseUrl/fetch_history.php';
 }

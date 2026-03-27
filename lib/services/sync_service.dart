@@ -60,4 +60,43 @@ class SyncService {
       debugPrint("SyncService: Sync failed - $e");
     }
   }
+
+  static Future<bool> pullHistoricalData(int userId, String token) async {
+    try {
+      debugPrint("SyncService: Pulling historical data for User $userId...");
+      
+      final response = await http.post(
+        Uri.parse(ApiConstants.fetchHistoryEndpoint),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "user_id": userId,
+          "auth_token": token,
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final responseData = jsonDecode(response.body);
+        if (responseData['status'] == 'success') {
+          List<dynamic> sessions = responseData['sessions'];
+          
+          if (sessions.isNotEmpty) {
+            await LocalDBService.instance.saveDownloadedHistory(sessions);
+            debugPrint("SyncService: Successfully rebuilt local DB with ${sessions.length} sessions.");
+          } else {
+             debugPrint("SyncService: No historical data found on server.");
+          }
+          return true;
+        } else {
+          debugPrint("SyncService: Server rejected pull - ${responseData['message']}");
+          return false;
+        }
+      } else {
+        debugPrint("SyncService: HTTP Error ${response.statusCode}");
+        return false;
+      }
+    } catch (e) {
+      debugPrint("SyncService: Network failure during pull - $e");
+      return false;
+    }
+  }
 }
