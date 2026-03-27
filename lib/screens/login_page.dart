@@ -5,6 +5,7 @@ import '../services/api_services.dart';
 import 'main_layout.dart';
 import 'register_page.dart';
 import 'dart:async';
+import '../services/sync_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -19,12 +20,15 @@ class _LoginPageState extends State<LoginPage> {
 
   bool _isLoading = false;
   String _message = '';
+  String _loadingText = ''; // NEW: Tracks the specific background phase
   bool _isPasswordVisible = false;
 
-  Future<void> _saveLogin({required String username}) async {
+  Future<void> _saveLogin(Map<String, dynamic> userData) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('logged_in', true);
-    await prefs.setString('username', username);
+    await prefs.setString('username', userData['username']);
+    await prefs.setInt('user_id', userData['id']);
+    await prefs.setString('auth_token', userData['auth_token']);
   }
 
   Future<void> _login() async {
@@ -38,9 +42,11 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
+    // Phase 1: Authentication
     setState(() {
       _isLoading = true;
       _message = '';
+      _loadingText = 'Authenticating...';
     });
 
     try {
@@ -52,17 +58,25 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
 
       if (response['status'] == 'success') {
-        final savedUsername = response['user']['username'] ?? username;
+        await _saveLogin(response['user']);
 
-        await _saveLogin(username: savedUsername);
+        // Phase 2: Data Hydration
+        setState(() {
+          _loadingText = 'Syncing historical data...';
+        });
+
+        int userId = response['user']['id'];
+        String token = response['user']['auth_token'];
+        
+        // This will now hold the screen, but the user knows why
+        await SyncService.pullHistoricalData(userId, token);
 
         if (!mounted) return;
 
+        // Phase 3: Entry
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (_) => const MainLayout(),
-          ),
+          MaterialPageRoute(builder: (_) => const MainLayout()),
         );
       } else {
         setState(() {
@@ -193,13 +207,27 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       onPressed: _isLoading ? null : _login,
                       child: _isLoading
-                          ? const SizedBox(
-                              width: 24,
-                              height: 24,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: navyBlue,
-                              ),
+                          ? Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: navyBlue,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Text(
+                                  _loadingText,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: navyBlue,
+                                  ),
+                                ),
+                              ],
                             )
                           : const Text(
                               'LOGIN',
