@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import '../audio_service.dart';
 import '../biomechanics_engine.dart';
@@ -55,10 +56,13 @@ class PushUpEvaluator extends BaseEvaluator {
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
     
-    // Core hardware inversion math
+    // Core hardware inversion math. Flipped operator to strictly match Flutter's 2D canvas 
+    // where higher Y values are physically lower on the screen.
     double expectedHipY = shoulder.y + (hip.x - shoulder.x) * ((knee.y - shoulder.y) / (knee.x - shoulder.x == 0 ? 0.001 : knee.x - shoulder.x));
-    bool isSagging = hip.y < expectedHipY;
+    bool isSagging = hip.y > expectedHipY;
 
+    // --- HEURISTIC PIPELINE ---
+    
     if (shoulderWidth > torsoLength * 0.55) {
       rawFormState = -1;
       rawFaultyJoints.addAll(activeJoints); 
@@ -67,17 +71,18 @@ class PushUpEvaluator extends BaseEvaluator {
         ttsVariations = ["Turn sideways. Front view is not supported.", "Please face sideways to the camera."];
       }
     } 
+    // THE FIX: Unified Core Coaching
     else if (hipHingeAngle < 165.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee]);
       if (rawFormError.isEmpty) {
-        if (isSagging) {
-          rawFormError = "Hips sagging.";
-          ttsVariations = ["Hips are dropping. Squeeze your core.", "Keep your back straight. Don't let your hips sag.", "Tighten your core."];
-        } else {
-          rawFormError = "Butt too high.";
-          ttsVariations = ["Lower your hips. Your butt is too high.", "Bring your hips down into a straight line.", "Flatten your back."];
-        }
+        rawFormError = "Core not straight.";
+        ttsVariations = [
+          "Keep your body in a straight line.", 
+          "Tighten your core.", 
+          "Straighten your back.",
+          "Lock your core tight."
+        ];
       }
     } 
     else if (kneeFlexionAngle < 160.0) {
@@ -103,10 +108,12 @@ class PushUpEvaluator extends BaseEvaluator {
       amnesiaConditionMet: elbowAngle >= 140.0 
     );
 
+    // --- START THE STOPWATCH ---
     if (elbowAngle < 140.0 && repMovementStartTime == null) {
       repMovementStartTime = DateTime.now();
     }
 
+    // --- STRICT REP LOGIC ---
     bool goodRep = false;
     bool badRep = false;
     String repFeedback = "";
@@ -143,7 +150,7 @@ class PushUpEvaluator extends BaseEvaluator {
       } else {
         repFeedback = "Lower yourself.";
         
-        // THE FIX: The Lockout-Proof Half-Rep Detector
+        // Lockout-Proof Half-Rep Detector
         if (elbowAngle >= 150.0 && lowestElbowAngle <= 120.0 && lowestElbowAngle > 90.0) {
           if (publishedFormState != -1) {
             AudioService.instance.speakCorrection([
