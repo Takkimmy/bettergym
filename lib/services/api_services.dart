@@ -11,12 +11,10 @@ class ApiService {
 
   static String? _activeBaseUrl;
 
-  // Dynamically determine which server is alive
   static Future<String> getBaseUrl() async {
     if (_activeBaseUrl != null) return _activeBaseUrl!;
 
     try {
-      // Ping the live server with a 2-second timeout. 
       final response = await http.get(Uri.parse('$liveBaseUrl/login.php')).timeout(const Duration(seconds: 2));
       if (response.statusCode == 200 || response.statusCode == 405) { 
         debugPrint("ROUTING: Connected to LIVE server.");
@@ -24,7 +22,7 @@ class ApiService {
         return _activeBaseUrl!;
       }
     } catch (e) {
-      debugPrint("ROUTING: Live server unreachable. Falling back to XAMPP ($localBaseUrl).");
+      debugPrint("ROUTING: Live server unreachable. Falling back to XAMPP.");
     }
 
     _activeBaseUrl = localBaseUrl;
@@ -65,25 +63,23 @@ class ApiService {
       final baseUrl = await getBaseUrl();
       final prefs = await SharedPreferences.getInstance();
 
-      // PULL THE REAL CREDENTIALS (matching keys from your login_page.dart)
+      // PULL THE REAL CREDENTIALS
       int? currentUserIdInt = prefs.getInt('user_id');
       String? currentAuthToken = prefs.getString('auth_token');
 
       if (currentUserIdInt == null || currentAuthToken == null) {
-        debugPrint("SYNC ABORTED: No user credentials found in SharedPreferences.");
+        debugPrint("SYNC ABORTED: No user credentials found in memory.");
         return;
       }
 
-      // Convert ID to string for JSON payload
       String currentUserId = currentUserIdInt.toString();
 
       for (var session in unsyncedSessions) {
-        // Inject real credentials into the payload
+        // Inject credentials
         session['auth_token'] = currentAuthToken;
         session['user_id'] = currentUserId;
-        session['session_id'] = session['id']; // Map SQLite 'id' to PHP 'session_id'
+        session['session_id'] = session['id']; 
 
-        // Map telemetry 'id' to PHP 'telemetry_id'
         if (session['exercises'] != null) {
           for (var ex in session['exercises']) {
             ex['telemetry_id'] = ex['id'];
@@ -104,8 +100,6 @@ class ApiService {
           } else {
             debugPrint("SYNC REJECTED: ${resData['message']}");
           }
-        } else {
-          debugPrint("SYNC FAILED: Server returned ${response.statusCode}");
         }
       }
     } catch (e) {

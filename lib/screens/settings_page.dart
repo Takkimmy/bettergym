@@ -11,7 +11,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  int _prepTime = 10;
+  int _prepTime = 30;
   int _restTime = 30;
   bool _voiceEnabled = true;
   double _feedbackVolume = 1.0;
@@ -27,7 +27,7 @@ class _SettingsPageState extends State<SettingsPage> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _prepTime = prefs.getInt('prep_time') ?? 10;
+      _prepTime = prefs.getInt('prep_time') ?? 30;
       _restTime = prefs.getInt('rest_time') ?? 30;
       _voiceEnabled = prefs.getBool('voice_enabled') ?? true;
       _feedbackVolume = prefs.getDouble('feedback_volume') ?? 1.0;
@@ -222,7 +222,7 @@ class _SettingsPageState extends State<SettingsPage> {
           // --- TIMER CONTROLS (MM:SS) ---
           const Padding(
             padding: EdgeInsets.only(left: 16, bottom: 8),
-            child: Text("TIMERS (MM:SS)", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+            child: Text("TIMERS", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
           ),
           Container(
             decoration: BoxDecoration(color: darkSlate, borderRadius: BorderRadius.circular(12)),

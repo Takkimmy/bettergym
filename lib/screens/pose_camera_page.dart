@@ -9,14 +9,14 @@ import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
 import 'package:permission_handler/permission_handler.dart'; 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:uuid/uuid.dart'; // THE FIX: Missing UUID import
+import 'package:uuid/uuid.dart'; 
 
 import '../main.dart';
 import '../services/audio_service.dart'; 
 import '../services/hardware_service.dart'; 
 import '../services/biomechanics_engine.dart';
-import '../services/local_db_service.dart'; // Ensure DB service is accessible
-import '../services/sync_service.dart';     // Ensure Sync service is accessible
+import '../services/local_db_service.dart'; 
+import '../services/api_services.dart'; 
 import 'session_setup_page.dart';
 import 'session_summary_page.dart';
 
@@ -343,8 +343,7 @@ class _PoseCameraPageState extends State<PoseCameraPage> with WidgetsBindingObse
         'exercise_score': currentExTelemetry.finalScore,
         'rep_scores_array': currentExTelemetry.repScores,
       });
-      // Fire the sync cannon in the background while they rest
-      SyncService.pushUnsyncedData();
+      ApiService.syncOfflineData();
     }
     // --------------------------------
 

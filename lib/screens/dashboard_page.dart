@@ -540,7 +540,7 @@ class _DashboardPageState extends State<DashboardPage> {
             children: [
               Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: mintGreen.withOpacity(0.1), shape: BoxShape.circle), child: const Icon(Icons.power_settings_new, size: 48, color: mintGreen)),
               const SizedBox(height: 24),
-              const Text('NO TELEMETRY', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2.0)),
+              const Text('NO WORKOUT DATA', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold, letterSpacing: 2.0)),
               const SizedBox(height: 32),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: mintGreen, foregroundColor: navyBlue, minimumSize: const Size.fromHeight(56), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
