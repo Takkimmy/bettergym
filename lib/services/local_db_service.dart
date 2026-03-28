@@ -176,45 +176,82 @@ class LocalDBService {
   Future<Map<String, dynamic>> getDashboardAggregates() async {
     final db = await database;
 
-    // 1. Volume Metrics (Total Time & Total Clean Reps)
-    final volumeResult = await db.rawQuery('''
+    // 1. Bento Box Data (Weekly vs Monthly Averages)
+    final bentoResult = await db.rawQuery('''
       SELECT 
-        (SELECT SUM(duration_seconds) FROM workout_sessions WHERE status = 'COMPLETED') as total_time,
-        (SELECT SUM(good_reps) FROM exercise_telemetry) as total_reps
+        (SELECT AVG(global_score) FROM workout_sessions WHERE status = 'COMPLETED' AND created_at >= date('now', '-7 days')) as weekly_avg,
+        (SELECT AVG(global_score) FROM workout_sessions WHERE status = 'COMPLETED' AND created_at >= date('now', '-30 days')) as monthly_avg
     ''');
 
-    // 2. Diagnostics (Exercise Averages)
-    final diagnosticsResult = await db.rawQuery('''
-      SELECT exercise_name, AVG(exercise_score) as avg_score, COUNT(id) as total_sets
-      FROM exercise_telemetry 
-      GROUP BY exercise_name 
-      HAVING total_sets > 0
-      ORDER BY avg_score DESC
+    // 2. Fallback Intelligence (Today -> Yesterday -> Last Known)
+    final lastSession = await db.rawQuery('''
+      SELECT *, 
+      CASE 
+        WHEN date(created_at) = date('now') THEN 'TODAY'
+        WHEN date(created_at) = date('now', '-1 day') THEN 'YESTERDAY'
+        ELSE date(created_at)
+      END as relative_date
+      FROM workout_sessions 
+      WHERE status = 'COMPLETED' 
+      ORDER BY created_at DESC LIMIT 1
     ''');
 
-    // 3. Timeline (Last 5 Sessions)
-    final recentSessions = await db.query(
-      'workout_sessions',
-      where: 'status = ?',
-      whereArgs: ['COMPLETED'],
-      orderBy: 'created_at DESC',
-      limit: 5
-    );
+    // 3. Weekly Volume Bucket (Sum of today + last 6 days)
+    final weeklyVolume = await db.rawQuery('''
+      SELECT 
+        SUM(s.duration_seconds) as total_time, 
+        SUM(t.good_reps) as total_reps,
+        COUNT(DISTINCT date(s.created_at)) as active_days
+      FROM workout_sessions s
+      JOIN exercise_telemetry t ON s.id = t.session_id
+      WHERE s.status = 'COMPLETED' AND s.created_at >= date('now', '-6 days')
+    ''');
 
-    // 4. THE NEW FATIGUE & HEATMAP ENGINE
-    final rawTelemetry = await db.rawQuery('''
+    // 4. Swipable Graph Data (Daily Averages for 7 and 30 days)
+    final daily7 = await db.rawQuery('''
+      SELECT date(created_at) as day, AVG(global_score) as avg_score 
+      FROM workout_sessions WHERE status = 'COMPLETED' AND created_at >= date('now', '-7 days')
+      GROUP BY day ORDER BY day ASC
+    ''');
+    
+    final daily30 = await db.rawQuery('''
+      SELECT date(created_at) as day, AVG(global_score) as avg_score 
+      FROM workout_sessions WHERE status = 'COMPLETED' AND created_at >= date('now', '-30 days')
+      GROUP BY day ORDER BY day ASC
+    ''');
+
+    // 5. Form Diagnostics (Top 2 / Bottom 2)
+    final diagnostics = await db.rawQuery('''
+      SELECT exercise_name, AVG(exercise_score) as avg_score FROM exercise_telemetry 
+      GROUP BY exercise_name ORDER BY avg_score DESC
+    ''');
+
+    // 6. Latest Activity (All history for the timeline)
+    final timeline = await db.rawQuery('''
+      SELECT *, date(created_at) as session_date FROM workout_sessions 
+      WHERE status = 'COMPLETED' ORDER BY created_at DESC
+    ''');
+
+    return {
+      'bento': bentoResult.first,
+      'last_known': lastSession.isNotEmpty ? lastSession.first : null,
+      'weekly_volume': weeklyVolume.first,
+      'graph_7': daily7,
+      'graph_30': daily30,
+      'diagnostics': diagnostics,
+      'timeline': timeline,
+    };
+  }
+
+  // Helper for the Configurable Form Endurance dropdown
+  Future<List<Map<String, dynamic>>> getRawTelemetryForPeriod(int days) async {
+    final db = await database;
+    return await db.rawQuery('''
       SELECT exercise_name, rep_scores_array, good_reps, bad_reps
       FROM exercise_telemetry 
       JOIN workout_sessions ON exercise_telemetry.session_id = workout_sessions.id
       WHERE workout_sessions.status = 'COMPLETED' 
-      AND workout_sessions.created_at >= date('now', '-7 days')
+      AND workout_sessions.created_at >= date('now', '-$days days')
     ''');
-
-    return {
-      'volume': volumeResult.isNotEmpty ? volumeResult.first : {'total_time': 0, 'total_reps': 0},
-      'diagnostics': diagnosticsResult,
-      'timeline': recentSessions,
-      'raw_telemetry': rawTelemetry, // NEW
-    };
   }
 }
