@@ -139,7 +139,7 @@ class _DashboardPageState extends State<DashboardPage> {
     if (isDayZero) {
       return Scaffold(
         backgroundColor: navyBlue, 
-        appBar: AppBar(backgroundColor: navyBlue, elevation: 0, title: const Text('TELEMETRY DASHBOARD', style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 2.0, fontSize: 16))), 
+        appBar: AppBar(backgroundColor: navyBlue, elevation: 0, title: const Text('DASHBOARD', style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 2.0, fontSize: 16))), 
         body: _buildZeroState()
       );
     }
@@ -152,7 +152,7 @@ class _DashboardPageState extends State<DashboardPage> {
       backgroundColor: navyBlue,
       appBar: AppBar(
         backgroundColor: navyBlue, elevation: 0,
-        title: const Text('TELEMETRY DASHBOARD', style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 2.0, fontSize: 16)), 
+        title: const Text('DASHBOARD', style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 2.0, fontSize: 16)), 
       ),
       body: RefreshIndicator(
         color: mintGreen, backgroundColor: darkSlate,
@@ -172,7 +172,7 @@ class _DashboardPageState extends State<DashboardPage> {
               children: [
                 Expanded(child: _buildBentoRing("Weekly Average", (_data['bento']['weekly_avg'] ?? 0.0))),
                 const SizedBox(width: 12),
-                Expanded(child: _buildBentoRing("Monthly Progress", (_data['bento']['monthly_avg'] ?? 0.0))),
+                Expanded(child: _buildBentoRing("Monthly Average", (_data['bento']['monthly_avg'] ?? 0.0))),
               ],
             ),
             const SizedBox(height: 24),
@@ -182,7 +182,7 @@ class _DashboardPageState extends State<DashboardPage> {
               padding: const EdgeInsets.all(16),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: List.generate(7, (i) => _buildHeatmapDay(['M','T','W','T','F','S','S'][i], _weeklyHeatmap[i])),
+                children: List.generate(7, (i) => _buildHeatmapDay(['M','T','W','Th','F','S','S'][i], _weeklyHeatmap[i])),
               ),
             ),
             const SizedBox(height: 24),
@@ -199,7 +199,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
             // --- 4. CONTEXTUAL INTELLIGENCE ---
             if (lastKnown != null) ...[
-              Text(lastKnown['relative_date'] == 'TODAY' ? "TODAY'S INTEL" : "LAST SESSION (${lastKnown['relative_date']})", style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+              Text(lastKnown['relative_date'] == 'TODAY' ? "TODAY'S PERFORMANCE" : "LAST SESSION (${lastKnown['relative_date']})", style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
               const SizedBox(height: 8),
               _buildGlassCard(
                 padding: const EdgeInsets.all(16),
@@ -207,7 +207,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   children: [
                     _infoRow(Icons.analytics, "Avg Score", "${lastKnown['global_score']}%", valueColor: _getScoreColor((lastKnown['global_score'] as num).toDouble())),
                     const Divider(color: Colors.white10),
-                    _infoRow(Icons.timer, "Duration", _formatTotalTime(lastKnown['duration_seconds'])),
+                    _infoRow(Icons.timer, "Workout Duration", _formatTotalTime(lastKnown['duration_seconds'])),
                   ],
                 ),
               ),
@@ -222,11 +222,11 @@ class _DashboardPageState extends State<DashboardPage> {
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   children: [
-                    _infoRow(Icons.calendar_today, "Active Days", "${weeklyVol['active_days']} / 7"),
+                    _infoRow(Icons.calendar_today, "Number of Days Active", "${weeklyVol['active_days']}"),
                     const Divider(color: Colors.white10),
-                    _infoRow(Icons.timer, "Total Duration", _formatTotalTime(weeklyVol['total_time'])),
+                    _infoRow(Icons.timer, "Total Time Worked Out", _formatTotalTime(weeklyVol['total_time'])),
                     const Divider(color: Colors.white10),
-                    _infoRow(Icons.fitness_center, "Total Clean Reps", "${weeklyVol['total_reps'] ?? 0}"),
+                    _infoRow(Icons.fitness_center, "Total Reps", "${weeklyVol['total_reps'] ?? 0}"),
                   ],
                 ),
               ),
@@ -245,9 +245,9 @@ class _DashboardPageState extends State<DashboardPage> {
             _buildEnduranceSection(),
             const SizedBox(height: 24),
 
-            // --- 9. LATEST ACTIVITY TIMELINE ---
+            // --- 9. RECENT ACTIVITY TIMELINE ---
             if (!_transportActive) ...[
-              const Text('LATEST ACTIVITY', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+              const Text('RECENT ACTIVITY', style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
               const SizedBox(height: 8),
               ...timeline.take(5).map((s) => _buildTimelineNode(s)),
             ],
@@ -325,8 +325,8 @@ class _DashboardPageState extends State<DashboardPage> {
       height: 220,
       child: PageView(
         children: [
-          if (g7.isNotEmpty) _buildTrendChart("7-DAY TREND", g7),
-          if (g30.isNotEmpty) _buildTrendChart("30-DAY TREND", g30),
+          if (g7.isNotEmpty) _buildTrendChart("WEEKLY AVERAGE TREND", g7),
+          if (g30.isNotEmpty) _buildTrendChart("MONTHLY AVERAGE TREND", g30),
         ],
       ),
     );
@@ -416,7 +416,7 @@ class _DashboardPageState extends State<DashboardPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text("FORM ENDURANCE", style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+            const Text("FORM PROGRESSION", style: TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
             DropdownButton<int>(
               value: _enduranceLookback,
               dropdownColor: navyBlue, underline: const SizedBox(),

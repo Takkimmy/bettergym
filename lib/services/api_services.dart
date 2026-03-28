@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'local_db_service.dart';
 
 class ApiService {
@@ -16,9 +17,8 @@ class ApiService {
 
     try {
       // Ping the live server with a 2-second timeout. 
-      // (Assuming you have a simple ping.php or just checking the root index)
       final response = await http.get(Uri.parse('$liveBaseUrl/login.php')).timeout(const Duration(seconds: 2));
-      if (response.statusCode == 200 || response.statusCode == 405) { // 405 Method Not Allowed is fine, means server is up
+      if (response.statusCode == 200 || response.statusCode == 405) { 
         debugPrint("ROUTING: Connected to LIVE server.");
         _activeBaseUrl = liveBaseUrl;
         return _activeBaseUrl!;
@@ -63,13 +63,22 @@ class ApiService {
       if (unsyncedSessions.isEmpty) return;
 
       final baseUrl = await getBaseUrl();
+      final prefs = await SharedPreferences.getInstance();
 
-      // TODO: Fetch the actual logged-in user's ID and Auth Token here (e.g., from SharedPreferences)
-      String currentUserId = "1"; // Replace with actual
-      String currentAuthToken = "YOUR_SAVED_TOKEN"; // Replace with actual
+      // PULL THE REAL CREDENTIALS (matching keys from your login_page.dart)
+      int? currentUserIdInt = prefs.getInt('user_id');
+      String? currentAuthToken = prefs.getString('auth_token');
+
+      if (currentUserIdInt == null || currentAuthToken == null) {
+        debugPrint("SYNC ABORTED: No user credentials found in SharedPreferences.");
+        return;
+      }
+
+      // Convert ID to string for JSON payload
+      String currentUserId = currentUserIdInt.toString();
 
       for (var session in unsyncedSessions) {
-        // Your sync_session.php expects auth_token, user_id, and session_id at the root
+        // Inject real credentials into the payload
         session['auth_token'] = currentAuthToken;
         session['user_id'] = currentUserId;
         session['session_id'] = session['id']; // Map SQLite 'id' to PHP 'session_id'
@@ -95,6 +104,8 @@ class ApiService {
           } else {
             debugPrint("SYNC REJECTED: ${resData['message']}");
           }
+        } else {
+          debugPrint("SYNC FAILED: Server returned ${response.statusCode}");
         }
       }
     } catch (e) {
