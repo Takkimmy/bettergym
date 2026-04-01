@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // NEW: Required for memory reading
-
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'screens/login_page.dart';
 import 'screens/main_layout.dart'; // NEW: Your actual home wrapper
 import 'services/hardware_service.dart';
@@ -20,10 +20,14 @@ Future<void> main() async {
 
   // CHECK PERSISTENT MEMORY
   final prefs = await SharedPreferences.getInstance();
-  final bool isLoggedIn = prefs.getBool('logged_in') ?? false; // Matches your login page key
+  final bool isLoggedIn = prefs.getBool('logged_in') ?? false;
 
   // Boot the app and pass the state
-  runApp(MyApp(isLoggedIn: isLoggedIn));
+  runApp(
+    ProviderScope(
+      child: MyApp(isLoggedIn: isLoggedIn),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {

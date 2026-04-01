@@ -281,5 +281,4 @@ class _SettingsPageState extends State<SettingsPage> {
       beepsVolume: _beepsVolume,
     );
   }
-  
 }

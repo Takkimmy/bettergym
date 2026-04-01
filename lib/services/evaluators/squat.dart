@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import '../audio_service.dart';
+// AUDIO SERVICE IMPORT DELETED
 import '../biomechanics_engine.dart';
 
 class SquatEvaluator extends BaseEvaluator {
@@ -165,7 +165,8 @@ class SquatEvaluator extends BaseEvaluator {
       smoothedFormScore = (smoothedFormScore * 0.8) + ((1.0 - depthScore) * 0.2); // Inverted for UI
     }
 
-    processFormState(
+    // 1. CAPTURE THE CUE FROM THE BASE EVALUATOR
+    List<String>? audioCuePayload = processFormState(
       rawFormState: rawFormState, 
       rawFormError: rawFormError, 
       rawFaultyJoints: rawFaultyJoints, 
@@ -199,7 +200,8 @@ class SquatEvaluator extends BaseEvaluator {
         if (isRushed) {
           badRep = true;
           repFeedback = "Too fast! Control the rep.";
-          AudioService.instance.speakCorrection(["Slow down the descent.", "Don't dive-bomb the squat."]);
+          // AUDIO INJECTION NO. 1
+          audioCuePayload ??= ["Slow down the descent.", "Don't dive-bomb the squat."];
         } else if (hasFormBrokenThisRep) {
           badRep = true;
           repFeedback = "Rep invalid. Watch form!";
@@ -225,11 +227,12 @@ class SquatEvaluator extends BaseEvaluator {
 
           if (attemptedSquat && missedDepth) {
             if (publishedFormState != -1) {
-              AudioService.instance.speakCorrection([
+              // AUDIO INJECTION NO. 2
+              audioCuePayload ??= [
                 "Partial rep. Break parallel.",
                 "Go deeper.",
                 "Drop your hips to knee level."
-              ]);
+              ];
             }
             _lowestKneeAngle = 180.0; 
             _highestHipRatio = 0.0;
@@ -238,19 +241,23 @@ class SquatEvaluator extends BaseEvaluator {
       }
     }
 
+    // 2. INJECT THE CAPTURED CUE INTO THE DATA PIPELINE
     return {
       'goodRepTriggered': goodRep, 'badRepTriggered': badRep,
       'formState': publishedFormState, 'feedback': publishedFormState == -1 ? publishedFormError : repFeedback,
       'activeJoints': activeJoints, 'faultyJoints': publishedFaultyJoints, 'formScore': smoothedFormScore,
+      'audioCue': audioCuePayload, // PIPELINE COMPLETED
     };
   }
 
+  // ADDED audioCue TO BAILOUT
   Map<String, dynamic> _bailOut({Set<PoseLandmarkType>? activeJoints}) {
     return {
       'goodRepTriggered': false, 'badRepTriggered': false, 
       'formState': 0, 'feedback': "Align body to camera.", 
       'activeJoints': activeJoints ?? <PoseLandmarkType>{}, 
-      'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0
+      'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0,
+      'audioCue': null
     };
   }
 }

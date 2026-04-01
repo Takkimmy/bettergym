@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import '../audio_service.dart';
+// AUDIO SERVICE IMPORT DELETED
 import '../biomechanics_engine.dart';
 
 class LungeEvaluator extends BaseEvaluator {
@@ -19,7 +19,8 @@ class LungeEvaluator extends BaseEvaluator {
     final leftShoulder = landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = landmarks[PoseLandmarkType.rightShoulder];
 
-    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+    // INJECTION: Added 'audioCue': null to handle early exits
+    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
 
     final bool isLeftVisible = leftShoulder.likelihood > rightShoulder.likelihood;
     
@@ -40,9 +41,10 @@ class LungeEvaluator extends BaseEvaluator {
       PoseLandmarkType.nose,
     };
 
+    // INJECTION: Added 'audioCue': null to handle early exits
     if (shoulder == null || hip == null || leftAnkle == null || rightAnkle == null || leftKnee == null || rightKnee == null || nose == null ||
         shoulder.likelihood < 0.5 || hip.likelihood < 0.5 || leftAnkle.likelihood < 0.5 || rightAnkle.likelihood < 0.5) {
-      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
     }
 
     // --- 1. DYNAMIC LEG IDENTIFICATION ---
@@ -81,7 +83,6 @@ class LungeEvaluator extends BaseEvaluator {
 
     // --- 3. CLINICAL HEURISTICS ---
 
-    // A. Strict Sideways Profile
     if (shoulderWidth > torsoLength * 0.45) {
       rawFormState = -1;
       triggerInstantKill = true;
@@ -91,7 +92,6 @@ class LungeEvaluator extends BaseEvaluator {
         ttsVariations = ["Turn sideways.", "Face the side, do not look at the camera."];
       }
     }
-    // B. The Shallow Step 
     else if (frontKneeFlexion < 140.0 && stepLength < torsoLength * 0.70) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftAnkle, PoseLandmarkType.rightAnkle]);
@@ -100,7 +100,6 @@ class LungeEvaluator extends BaseEvaluator {
         ttsVariations = ["Widen your stance.", "Take a longer step.", "Your feet are too close together."];
       }
     }
-    // C. Back Knee Twist
     else if (frontKneeFlexion < 130.0 && backShinLength < torsoLength * 0.35) {
       rawFormState = -1;
       triggerInstantKill = true;
@@ -110,7 +109,6 @@ class LungeEvaluator extends BaseEvaluator {
         ttsVariations = ["Point your back knee straight down.", "Don't twist your back leg outward."];
       }
     }
-    // D. Forward Torso Collapse
     else if (leaningForward && leanAngle > 25.0) {
       rawFormState = -1;
       triggerInstantKill = true; 
@@ -120,7 +118,6 @@ class LungeEvaluator extends BaseEvaluator {
         ttsVariations = ["Chest up.", "Don't lean forward.", "Straighten your back."];
       }
     }
-    // E. Backward Torso Hyperextension
     else if (!leaningForward && leanAngle > 10.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip]);
@@ -130,7 +127,8 @@ class LungeEvaluator extends BaseEvaluator {
       }
     }
 
-    processFormState(
+    // INJECTION: Capture the audio cue payload from the BaseEvaluator
+    List<String>? audioCuePayload = processFormState(
       rawFormState: rawFormState, 
       rawFormError: rawFormError, 
       rawFaultyJoints: rawFaultyJoints, 
@@ -144,7 +142,7 @@ class LungeEvaluator extends BaseEvaluator {
       repMovementStartTime = DateTime.now();
     }
 
-    // --- STRICT REP LOGIC ---
+    // --- 4. STRICT REP LOGIC ---
     bool goodRep = false;
     bool badRep = false;
     String repFeedback = "";
@@ -164,7 +162,8 @@ class LungeEvaluator extends BaseEvaluator {
         if (isRushed) {
           badRep = true;
           repFeedback = "Too fast! Control the descent.";
-          AudioService.instance.speakCorrection(["Slow down your lunge.", "Don't rush.", "Control the movement."]);
+          // INJECTION: Store audio instructions for the UI
+          audioCuePayload ??= ["Slow down your lunge.", "Don't rush.", "Control the movement."];
         } else if (hasFormBrokenThisRep) {
           badRep = true;
           repFeedback = "Rep invalid. Watch form!";
@@ -181,25 +180,26 @@ class LungeEvaluator extends BaseEvaluator {
       } else {
         repFeedback = "Drop lower...";
         
-        // THE FIX: Commitment threshold tightened from 140.0 to 120.0
-        // You must genuinely commit to the descent before it flags a half-rep
         if (frontKneeFlexion >= 160.0 && _lowestKneeAngle <= 120.0 && _lowestKneeAngle > 95.0) {
           if (publishedFormState != -1) {
-            AudioService.instance.speakCorrection([
+            // INJECTION: Store "Partial Rep" feedback
+            audioCuePayload ??= [
               "Partial repetition. Drop your back knee lower.",
               "Go deeper on the lunge.",
               "Back knee toward the floor."
-            ]);
+            ];
           }
           _lowestKneeAngle = 180.0; 
         }
       }
     }
 
+    // INJECTION: Final map return with the audio routing key
     return {
       'goodRepTriggered': goodRep, 'badRepTriggered': badRep,
       'formState': publishedFormState, 'feedback': publishedFormState == -1 ? publishedFormError : repFeedback,
       'activeJoints': activeJoints, 'faultyJoints': publishedFaultyJoints, 'formScore': smoothedFormScore,
+      'audioCue': audioCuePayload, // PIPELINE COMPLETED
     };
   }
 }

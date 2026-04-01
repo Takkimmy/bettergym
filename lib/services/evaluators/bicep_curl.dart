@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import '../audio_service.dart';
+// AUDIO SERVICE IMPORT DELETED - Logic engines must remain hardware-agnostic
 import '../biomechanics_engine.dart';
 
 class BicepCurlEvaluator extends BaseEvaluator {
@@ -19,7 +19,8 @@ class BicepCurlEvaluator extends BaseEvaluator {
     final leftShoulder = landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = landmarks[PoseLandmarkType.rightShoulder];
 
-    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+    // INJECTION: Added 'audioCue': null to handle early exits safely
+    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
 
     final bool isLeftVisible = leftShoulder.likelihood > rightShoulder.likelihood;
     final shoulder = isLeftVisible ? landmarks[PoseLandmarkType.leftShoulder] : landmarks[PoseLandmarkType.rightShoulder];
@@ -38,9 +39,10 @@ class BicepCurlEvaluator extends BaseEvaluator {
       PoseLandmarkType.nose,
     };
 
+    // INJECTION: Added 'audioCue': null
     if (shoulder == null || elbow == null || wrist == null || hip == null || ankle == null || nose == null ||
         shoulder.likelihood < 0.5 || elbow.likelihood < 0.5 || wrist.likelihood < 0.5 || hip.likelihood < 0.5) {
-      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
     }
 
     // --- 1. MATH & GEOMETRY ---
@@ -49,8 +51,6 @@ class BicepCurlEvaluator extends BaseEvaluator {
     final torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
 
     final elbowAngle = calculateAngle(shoulder, elbow, wrist);
-    
-    // Calculates the angle of the upper arm relative to the vertical line of the torso
     final upperArmAngle = calculateAngle(hip, shoulder, elbow);
 
     final torsoDx = shoulder.x - hip.x;
@@ -72,7 +72,6 @@ class BicepCurlEvaluator extends BaseEvaluator {
 
     // --- 2. CLINICAL HEURISTICS ---
 
-    // A. Strict Sideways Profile
     if (shoulderWidth > torsoLength * 0.45) {
       rawFormState = -1;
       triggerInstantKill = true;
@@ -82,7 +81,6 @@ class BicepCurlEvaluator extends BaseEvaluator {
         ttsVariations = ["Turn sideways. Portrait mode required.", "Face the side."];
       }
     }
-    // B. Upper Arm Drift (The Cheater Rep)
     else if (upperArmAngle > 25.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightElbow, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip]);
@@ -91,7 +89,6 @@ class BicepCurlEvaluator extends BaseEvaluator {
         ttsVariations = ["Pin your elbows to your sides.", "Stop swinging your arms.", "Keep your upper arm still."];
       }
     }
-    // C. Torso Swing (Lower Back Cheating)
     else if (leaningBackward && leanAngle > 15.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.rightShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.rightHip]);
@@ -101,7 +98,8 @@ class BicepCurlEvaluator extends BaseEvaluator {
       }
     }
 
-    processFormState(
+    // INJECTION: Capture the audio cue payload from the BaseEvaluator
+    List<String>? audioCuePayload = processFormState(
       rawFormState: rawFormState, 
       rawFormError: rawFormError, 
       rawFaultyJoints: rawFaultyJoints, 
@@ -120,13 +118,13 @@ class BicepCurlEvaluator extends BaseEvaluator {
     bool badRep = false;
     String repFeedback = "";
 
-    if (isDown) { // Arms extended, waiting to curl UP
+    if (isDown) { 
       repFeedback = "Curl it up!";
       if (elbowAngle <= 60.0) {
         isDown = false; 
         _highestElbowAngle = 0.0; 
       }
-    } else { // Arms curled, waiting to extend DOWN
+    } else { 
       repFeedback = "Lower slowly...";
       if (elbowAngle >= 150.0) {
         isDown = true; 
@@ -134,16 +132,16 @@ class BicepCurlEvaluator extends BaseEvaluator {
         bool isRushed = false;
         if (repMovementStartTime != null) {
           final durationMs = DateTime.now().difference(repMovementStartTime!).inMilliseconds;
-          if (durationMs < 2000) isRushed = true; // Speed limit enforced
+          if (durationMs < 2000) isRushed = true; 
         }
         repMovementStartTime = null; 
         
         if (isRushed) {
           badRep = true;
           repFeedback = "Too fast! Control the eccentric.";
-          AudioService.instance.speakCorrection(["Slow down on the way down.", "Don't drop the weight.", "Control the negative."]);
+          // INJECTION: Store audio instructions for the UI to handle
+          audioCuePayload ??= ["Slow down on the way down.", "Don't drop the weight.", "Control the negative."];
         } 
-        // THE FIX: The rep is irrevocably burned if they let their elbows drift or swung their back
         else if (hasFormBrokenThisRep) {
           badRep = true;
           repFeedback = "Rep invalid. Keep elbows pinned!";
@@ -152,24 +150,26 @@ class BicepCurlEvaluator extends BaseEvaluator {
           repFeedback = "Perfect curl!";
         }
       } else {
-        // Half rep detection: Started curling back up without reaching full extension (150 degrees)
         if (elbowAngle <= 70.0 && _highestElbowAngle >= 100.0 && _highestElbowAngle < 140.0) {
           if (publishedFormState != -1) {
-            AudioService.instance.speakCorrection([
+            // INJECTION: Store "Partial Rep" feedback
+            audioCuePayload ??= [
               "Partial rep. Extend your arms fully.",
               "All the way down.",
               "Full range of motion."
-            ]);
+            ];
           }
-          _highestElbowAngle = 0.0; // Reset to prevent spam
+          _highestElbowAngle = 0.0; 
         }
       }
     }
 
+    // INJECTION: Final map return with audio routing key
     return {
       'goodRepTriggered': goodRep, 'badRepTriggered': badRep,
       'formState': publishedFormState, 'feedback': publishedFormState == -1 ? publishedFormError : repFeedback,
       'activeJoints': activeJoints, 'faultyJoints': publishedFaultyJoints, 'formScore': smoothedFormScore,
+      'audioCue': audioCuePayload,
     };
   }
 }

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'local_db_service.dart';
+import 'package:flutter/foundation.dart';
+import '../utils/api_constants.dart';
 
 class ApiService {
   // --- ENVIRONMENT ROUTING ---
@@ -57,83 +59,49 @@ class ApiService {
   // --- THE SYNC ENGINE ---
   static Future<void> syncOfflineData() async {
     try {
-      final unsyncedSessions = await LocalDBService.instance.getUnsyncedSessions();
-      if (unsyncedSessions.isEmpty) return;
+      final unsynced = await LocalDBService.instance.getUnsyncedSessions();
+      if (unsynced.isEmpty) return;
 
-      final baseUrl = await getBaseUrl();
       final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final userId = prefs.getInt('user_id');
 
-      // PULL THE REAL CREDENTIALS
-      int? currentUserIdInt = prefs.getInt('user_id');
-      String? currentAuthToken = prefs.getString('auth_token');
-
-      if (currentUserIdInt == null || currentAuthToken == null) {
-        debugPrint("SYNC ABORTED: No user credentials found in memory.");
-        return;
+      if (token == null || userId == null) {
+        debugPrint('SYNC ABORTED: Missing authentication constraints.');
+        return; 
       }
 
-      String currentUserId = currentUserIdInt.toString();
-
-      for (var session in unsyncedSessions) {
-        // Inject credentials
-        session['auth_token'] = currentAuthToken;
-        session['user_id'] = currentUserId;
-        session['session_id'] = session['id']; 
-
-        if (session['exercises'] != null) {
-          for (var ex in session['exercises']) {
-            ex['telemetry_id'] = ex['id'];
-          }
+      for (var sessionPayload in unsynced) {
+        // Inject auth and format keys for the PHP script
+        sessionPayload['auth_token'] = token;
+        sessionPayload['user_id'] = userId;
+        
+        // PHP script looks for session_id at the root level
+        if (!sessionPayload.containsKey('session_id')) {
+           sessionPayload['session_id'] = sessionPayload['id']; 
         }
 
         final response = await http.post(
-          Uri.parse('$baseUrl/sync_session.php'),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode(session),
-        ).timeout(const Duration(seconds: 5));
+          Uri.parse('https://YOUR_DOMAIN.com/api/sync_session.php'), // UPDATE THIS URL
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(sessionPayload),
+        );
 
         if (response.statusCode == 200) {
-          final resData = jsonDecode(response.body);
-          if (resData['status'] == 'success') {
-            await LocalDBService.instance.markSessionAsSynced(session['id']);
-            debugPrint("SYNC SUCCESS: Session ${session['id']} backed up.");
+          final result = jsonDecode(response.body);
+          if (result['status'] == 'success') {
+            // ONLY mark as synced if the server explicitly confirms atomic insertion
+            await LocalDBService.instance.markSessionSynced(sessionPayload['id']);
           } else {
-            debugPrint("SYNC REJECTED: ${resData['message']}");
+            debugPrint('SYNC REJECTED BY SERVER: ${result['message']}');
           }
+        } else {
+          debugPrint('SYNC HTTP ERROR: ${response.statusCode}');
         }
       }
     } catch (e) {
-      debugPrint("SYNC NETWORK ERROR: $e");
-    }
-  }
-  // --- SETTINGS SYNC ENGINE ---
-  static Future<void> pushSettings({
-    required int prepTime, required int restTime, required bool voiceEnabled,
-    required double feedbackVolume, required double beepsVolume,
-  }) async {
-    try {
-      final baseUrl = await getBaseUrl();
-      final prefs = await SharedPreferences.getInstance();
-      
-      String? userId = prefs.getInt('user_id')?.toString();
-      String? token = prefs.getString('auth_token');
-
-      if (userId == null || token == null) return;
-
-      await http.post(
-        Uri.parse('$baseUrl/sync_settings.php'), // You will need to create this PHP script
-        body: {
-          'user_id': userId,
-          'auth_token': token,
-          'prep_time': prepTime.toString(),
-          'rest_time': restTime.toString(),
-          'voice_enabled': voiceEnabled ? '1' : '0',
-          'feedback_volume': feedbackVolume.toString(),
-          'beeps_volume': beepsVolume.toString(),
-        },
-      ).timeout(const Duration(seconds: 5));
-    } catch (e) {
-      debugPrint("SETTINGS PUSH ERROR: $e");
+      debugPrint('SYNC FATAL EXCEPTION: $e');
+      // Fails silently. Will retry on next UI trigger.
     }
   }
 
@@ -159,5 +127,48 @@ class ApiService {
       debugPrint("SETTINGS PULL ERROR: $e");
     }
     return null;
+  }
+  static Future<void> pushSettings({
+    required int prepTime,
+    required int restTime,
+    required bool voiceEnabled,
+    required double feedbackVolume,
+    required double beepsVolume,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final String? token = prefs.getString('auth_token');
+      final int? userId = prefs.getInt('user_id');
+
+      if (token == null || userId == null) {
+        debugPrint("ApiService: Aborting settings sync. Missing credentials.");
+        return;
+      }
+
+      // Note: We are NOT using jsonEncode here to strictly match your PHP $_POST expectations
+      final response = await http.post(
+        Uri.parse(ApiConstants.updateSettingsEndpoint), // Ensure this constant exists in api_constants.dart
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: {
+          "auth_token": token,
+          "user_id": userId.toString(),
+          "prep_time": prepTime.toString(),
+          "rest_time": restTime.toString(),
+          "voice_enabled": voiceEnabled ? "1" : "0", 
+          "feedback_volume": feedbackVolume.toString(),
+          "beeps_volume": beepsVolume.toString(),
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        debugPrint("ApiService: Settings synchronized to cloud.");
+      } else {
+        debugPrint("ApiService: Server rejected settings sync - HTTP ${response.statusCode}");
+      }
+    } catch (e) {
+      debugPrint("ApiService: Settings network failure - $e");
+    }
   }
 }

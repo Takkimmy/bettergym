@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import '../audio_service.dart';
+// NOTE: I deleted the audio_service.dart import here. Math engines don't speak.
 import '../biomechanics_engine.dart';
 
 class PushUpEvaluator extends BaseEvaluator {
@@ -11,7 +11,7 @@ class PushUpEvaluator extends BaseEvaluator {
     final leftShoulder = landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = landmarks[PoseLandmarkType.rightShoulder];
 
-    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
 
     final bool isLeftVisible = leftShoulder.likelihood > rightShoulder.likelihood;
     final shoulder = isLeftVisible ? landmarks[PoseLandmarkType.leftShoulder] : landmarks[PoseLandmarkType.rightShoulder];
@@ -32,7 +32,7 @@ class PushUpEvaluator extends BaseEvaluator {
 
     if (shoulder == null || elbow == null || wrist == null || hip == null || knee == null || ankle == null ||
         shoulder.likelihood < 0.5 || hip.likelihood < 0.5 || knee.likelihood < 0.5 || ankle.likelihood < 0.5) {
-      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
     }
 
     final hipHingeAngle = calculateAngle(shoulder, hip, knee); 
@@ -56,8 +56,6 @@ class PushUpEvaluator extends BaseEvaluator {
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
     
-    // Core hardware inversion math. Flipped operator to strictly match Flutter's 2D canvas 
-    // where higher Y values are physically lower on the screen.
     double expectedHipY = shoulder.y + (hip.x - shoulder.x) * ((knee.y - shoulder.y) / (knee.x - shoulder.x == 0 ? 0.001 : knee.x - shoulder.x));
     bool isSagging = hip.y > expectedHipY;
 
@@ -71,7 +69,6 @@ class PushUpEvaluator extends BaseEvaluator {
         ttsVariations = ["Turn sideways. Front view is not supported.", "Please face sideways to the camera."];
       }
     } 
-    // THE FIX: Unified Core Coaching
     else if (hipHingeAngle < 165.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftKnee, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightKnee]);
@@ -102,7 +99,8 @@ class PushUpEvaluator extends BaseEvaluator {
       }
     }
 
-    processFormState(
+    // 1. CAPTURE THE CUE FROM THE BASE EVALUATOR
+    List<String>? audioCuePayload = processFormState(
       rawFormState: rawFormState, rawFormError: rawFormError, 
       rawFaultyJoints: rawFaultyJoints, ttsVariations: ttsVariations, 
       amnesiaConditionMet: elbowAngle >= 140.0 
@@ -134,7 +132,8 @@ class PushUpEvaluator extends BaseEvaluator {
         if (isRushed) {
           badRep = true; 
           repFeedback = "Too fast! Control the rep.";
-          AudioService.instance.speakCorrection(["Slow down. Don't rush.", "Control the weight. Too fast."]);
+          // Add the audio cue directly to the payload instead of calling hardware
+          audioCuePayload ??= ["Slow down. Don't rush.", "Control the weight. Too fast."];
         } else if (hasFormBrokenThisRep) {
           badRep = true; 
           repFeedback = "Rep invalid. Fix your form!";
@@ -153,21 +152,24 @@ class PushUpEvaluator extends BaseEvaluator {
         // Lockout-Proof Half-Rep Detector
         if (elbowAngle >= 150.0 && lowestElbowAngle <= 120.0 && lowestElbowAngle > 90.0) {
           if (publishedFormState != -1) {
-            AudioService.instance.speakCorrection([
+            // Add the audio cue directly to the payload instead of calling hardware
+            audioCuePayload ??= [
               "Partial repetition. Go lower next time.", 
               "Not low enough. Break 90 degrees.", 
               "Chest to the floor."
-            ]);
+            ];
           }
           lowestElbowAngle = 180.0; 
         }
       }
     }
 
+    // 2. INJECT THE CAPTURED CUE INTO THE DATA PIPELINE
     return {
       'goodRepTriggered': goodRep, 'badRepTriggered': badRep,
       'formState': publishedFormState, 'feedback': publishedFormState == -1 ? publishedFormError : repFeedback,
-      'activeJoints': activeJoints, 'faultyJoints': publishedFaultyJoints, 'formScore': smoothedFormScore,       
+      'activeJoints': activeJoints, 'faultyJoints': publishedFaultyJoints, 'formScore': smoothedFormScore,
+      'audioCue': audioCuePayload, // PIPELINE COMPLETED
     };
   }
 }

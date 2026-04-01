@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import 'audio_service.dart';
 
 import 'evaluators/push_up.dart';
 import 'evaluators/bench_dip.dart';
@@ -24,7 +23,6 @@ abstract class BaseEvaluator {
   Set<PoseLandmarkType> publishedFaultyJoints = {};
   double smoothedFormScore = 1.0; 
 
-  // NEW: The Time Under Tension Stopwatch
   DateTime? repMovementStartTime; 
 
   void reset() {
@@ -37,7 +35,7 @@ abstract class BaseEvaluator {
     publishedFormError = "";
     publishedFaultyJoints = {};
     smoothedFormScore = 1.0;
-    repMovementStartTime = null; // Reset the stopwatch
+    repMovementStartTime = null; 
   }
 
   double calculateAngle(PoseLandmark first, PoseLandmark middle, PoseLandmark last) {
@@ -49,13 +47,14 @@ abstract class BaseEvaluator {
     return degrees;
   }
 
-void processFormState({
+  // OPTIMIZATION: Returns a List<String> of TTS variations instead of executing audio directly
+  List<String>? processFormState({
     required int rawFormState,
     required String rawFormError,
     required Set<PoseLandmarkType> rawFaultyJoints,
     required List<String> ttsVariations,
     required bool amnesiaConditionMet, 
-    bool isInstantFault = false, // NEW: The Instant-Kill Switch
+    bool isInstantFault = false, 
   }) {
     if (amnesiaConditionMet && rawFormState == 1 && !isDown) {
       hasFormBrokenThisRep = false; 
@@ -65,17 +64,16 @@ void processFormState({
       consecutiveBadFrames++;
       consecutiveGoodFrames = 0;
       
-      // Trigger if we hit the 5-frame limit OR if the Instant-Kill switch is thrown on frame 1
       if (consecutiveBadFrames >= debounceThreshold || (isInstantFault && consecutiveBadFrames == 1)) {
         publishedFormState = -1;
         publishedFormError = rawFormError;
         publishedFaultyJoints = Set.from(rawFaultyJoints);
-        
-        // Only speak on the exact frame it triggers to prevent audio spam
-        if (ttsVariations.isNotEmpty && (consecutiveBadFrames == debounceThreshold || (isInstantFault && consecutiveBadFrames == 1))) {
-          AudioService.instance.speakCorrection(ttsVariations);
-        }
         hasFormBrokenThisRep = true; 
+        
+        // Return the TTS payload to be handled by the Controller
+        if (ttsVariations.isNotEmpty && (consecutiveBadFrames == debounceThreshold || (isInstantFault && consecutiveBadFrames == 1))) {
+          return ttsVariations;
+        }
       }
     } else {
       consecutiveGoodFrames++;
@@ -86,9 +84,9 @@ void processFormState({
         publishedFaultyJoints = {};
       }
     }
+    return null; // No audio required
   }
 
-  // Every specific exercise file MUST implement this method
   Map<String, dynamic> evaluate(Pose pose);
 }
 
@@ -105,7 +103,6 @@ class BiomechanicsEngine {
   }
 
   Map<String, dynamic> processFrame({required Pose pose, required String exerciseName}) {
-    // If the exercise changed, load the correct evaluator file
     if (_currentExerciseName != exerciseName || _currentEvaluator == null) {
       _currentExerciseName = exerciseName;
       _currentEvaluator = _getEvaluator(exerciseName);
@@ -115,7 +112,8 @@ class BiomechanicsEngine {
       return {
         'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 1,
         'feedback': "Tracking not available for $exerciseName.",
-        'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 1.0 
+        'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 1.0,
+        'audioCue': null // Explicitly handle null audio
       };
     }
 

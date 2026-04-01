@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
+// AUDIO SERVICE IMPORT DELETED
 import '../biomechanics_engine.dart';
 
 class PlankEvaluator extends BaseEvaluator {
@@ -21,7 +22,8 @@ class PlankEvaluator extends BaseEvaluator {
     final leftShoulder = landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = landmarks[PoseLandmarkType.rightShoulder];
 
-    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+    // INJECTION: Added 'audioCue': null to bailout
+    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
 
     final bool isLeftVisible = leftShoulder.likelihood > rightShoulder.likelihood;
     
@@ -45,9 +47,10 @@ class PlankEvaluator extends BaseEvaluator {
       PoseLandmarkType.nose, 
     };
 
+    // INJECTION: Added 'audioCue': null to bailout
     if (shoulder == null || elbow == null || hip == null || knee == null || ankle == null || nose == null || leftElbow == null || rightElbow == null ||
         shoulder.likelihood < 0.5 || hip.likelihood < 0.5 || knee.likelihood < 0.5 || nose.likelihood < 0.5) {
-      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
     }
 
     // 1. Math & Geometry
@@ -156,7 +159,8 @@ class PlankEvaluator extends BaseEvaluator {
       }
     }
 
-    processFormState(
+    // INJECTION: Capture the audio cue payload
+    List<String>? audioCuePayload = processFormState(
       rawFormState: rawFormState, 
       rawFormError: rawFormError, 
       rawFaultyJoints: rawFaultyJoints, 
@@ -171,6 +175,7 @@ class PlankEvaluator extends BaseEvaluator {
       _rightElbowAnchor = null;
     }
 
+    // INJECTION: Final pipeline completion
     return {
       'goodRepTriggered': false, 
       'badRepTriggered': false, 
@@ -179,6 +184,7 @@ class PlankEvaluator extends BaseEvaluator {
       'activeJoints': activeJoints, 
       'faultyJoints': publishedFaultyJoints, 
       'formScore': smoothedFormScore,
+      'audioCue': audioCuePayload, // PIPELINE COMPLETED
     };
   }
 }

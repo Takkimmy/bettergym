@@ -1,6 +1,7 @@
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:google_mlkit_pose_detection/google_mlkit_pose_detection.dart';
-import '../audio_service.dart';
+// AUDIO SERVICE IMPORT DELETED
 import '../biomechanics_engine.dart';
 
 class BenchDipEvaluator extends BaseEvaluator {
@@ -10,7 +11,8 @@ class BenchDipEvaluator extends BaseEvaluator {
     final leftShoulder = landmarks[PoseLandmarkType.leftShoulder];
     final rightShoulder = landmarks[PoseLandmarkType.rightShoulder];
 
-    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+    // INJECTION: Added 'audioCue': null
+    if (leftShoulder == null || rightShoulder == null) return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Full body not visible.", 'activeJoints': <PoseLandmarkType>{}, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
 
     final bool isLeftVisible = leftShoulder.likelihood > rightShoulder.likelihood;
     
@@ -28,16 +30,16 @@ class BenchDipEvaluator extends BaseEvaluator {
       PoseLandmarkType.leftKnee, PoseLandmarkType.rightKnee,
     };
 
+    // INJECTION: Added 'audioCue': null
     if (shoulder == null || elbow == null || wrist == null || hip == null || knee == null || 
         shoulder.likelihood < 0.5 || hip.likelihood < 0.5) {
-      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0};
+      return {'goodRepTriggered': false, 'badRepTriggered': false, 'formState': 0, 'feedback': "Align side profile to camera.", 'activeJoints': activeJoints, 'faultyJoints': <PoseLandmarkType>{}, 'formScore': 0.0, 'audioCue': null};
     }
 
     // --- 1. MATH & GEOMETRY ---
     final shoulderWidth = (leftShoulder.x - rightShoulder.x).abs();
     final torsoLength = math.sqrt(math.pow(shoulder.x - hip.x, 2) + math.pow(shoulder.y - hip.y, 2));
     
-    // Calculates horizontal distance between hips and wrists
     final horizontalDrift = (hip.x - wrist.x).abs(); 
 
     final trunkDx = (shoulder.x - hip.x).abs();
@@ -59,7 +61,6 @@ class BenchDipEvaluator extends BaseEvaluator {
 
     // --- 2. CLINICAL HEURISTICS ---
 
-    // A. Strict Sideways Profile
     if (shoulderWidth > torsoLength * 0.45) {
       rawFormState = -1;
       triggerInstantKill = true; 
@@ -69,7 +70,6 @@ class BenchDipEvaluator extends BaseEvaluator {
         ttsVariations = ["Strict side profile required.", "Please face the side completely."];
       }
     } 
-    // B. Hip Drift (The Shoulder Killer)
     else if (horizontalDrift > torsoLength * 0.50) { 
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.leftWrist, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip, PoseLandmarkType.rightWrist]);
@@ -82,7 +82,6 @@ class BenchDipEvaluator extends BaseEvaluator {
         ];
       }
     }
-    // C. The Impingement Zone (Too Deep)
     else if (elbowAngle < 80.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftElbow, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightElbow]);
@@ -95,7 +94,6 @@ class BenchDipEvaluator extends BaseEvaluator {
         ];
       }
     }
-    // D. Extreme Torso Lean (Relaxed, but catches complete collapse)
     else if (trunkAngle > 55.0) {
       rawFormState = -1;
       rawFaultyJoints.addAll([PoseLandmarkType.leftShoulder, PoseLandmarkType.leftHip, PoseLandmarkType.rightShoulder, PoseLandmarkType.rightHip]);
@@ -105,7 +103,8 @@ class BenchDipEvaluator extends BaseEvaluator {
       }
     } 
 
-    processFormState(
+    // INJECTION: Capture the audio cue payload
+    List<String>? audioCuePayload = processFormState(
       rawFormState: rawFormState, 
       rawFormError: rawFormError, 
       rawFaultyJoints: rawFaultyJoints, 
@@ -124,7 +123,7 @@ class BenchDipEvaluator extends BaseEvaluator {
     bool badRep = false;
     String repFeedback = "";
 
-    if (isDown) { // At the bottom, waiting to push UP
+    if (isDown) { 
       repFeedback = "Push up!";
       if (elbowAngle >= 155.0) {
         isDown = false; 
@@ -139,7 +138,8 @@ class BenchDipEvaluator extends BaseEvaluator {
         if (isRushed) {
           badRep = true; 
           repFeedback = "Too fast! Control the rep.";
-          AudioService.instance.speakCorrection(["Slow down.", "Control your speed."]);
+          // AUDIO INJECTION NO. 1
+          audioCuePayload ??= ["Slow down.", "Control your speed."];
         } else if (hasFormBrokenThisRep) {
           badRep = true; 
           repFeedback = "Rep invalid. Watch your form!";
@@ -149,31 +149,33 @@ class BenchDipEvaluator extends BaseEvaluator {
         }
         lowestElbowAngle = 180.0; 
       }
-    } else { // At the top, waiting to drop DOWN
+    } else { 
       if (elbowAngle <= 100.0) {
         isDown = true; 
         repFeedback = "Depth reached. Push!";
       } else {
         repFeedback = "Lower yourself.";
 
-        // THE FIX: Lockout-Proof Half-Rep Detection
         if (elbowAngle >= 155.0 && lowestElbowAngle <= 130.0 && lowestElbowAngle > 100.0) {
           if (publishedFormState != -1) {
-            AudioService.instance.speakCorrection([
+            // AUDIO INJECTION NO. 2
+            audioCuePayload ??= [
               "Partial repetition. Go lower.", 
               "Not deep enough.", 
               "Break 90 degrees."
-            ]);
+            ];
           }
           lowestElbowAngle = 180.0; 
         }
       }
     }
 
+    // INJECTION: Final pipeline completion
     return {
       'goodRepTriggered': goodRep, 'badRepTriggered': badRep,
       'formState': publishedFormState, 'feedback': publishedFormState == -1 ? publishedFormError : repFeedback,
-      'activeJoints': activeJoints, 'faultyJoints': publishedFaultyJoints, 'formScore': smoothedFormScore,       
+      'activeJoints': activeJoints, 'faultyJoints': publishedFaultyJoints, 'formScore': smoothedFormScore,
+      'audioCue': audioCuePayload,
     };
   }
 }
