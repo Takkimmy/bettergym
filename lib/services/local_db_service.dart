@@ -299,13 +299,45 @@ class LocalDBService {
   // Helper for the Configurable Form Endurance dropdown
   Future<List<Map<String, dynamic>>> getRawTelemetryForPeriod(int days) async {
     final db = await database;
-    return await db.rawQuery('''
-      SELECT exercise_name, rep_scores_array, good_reps, bad_reps
-      FROM exercise_telemetry 
-      JOIN workout_sessions ON exercise_telemetry.session_id = workout_sessions.id
-      WHERE workout_sessions.status = 'COMPLETED' 
-      AND workout_sessions.created_at >= date('now', '-$days days')
-    ''');
+
+    final rows = await db.rawQuery('''
+    SELECT
+      et.id as exercise_id,
+      et.exercise_name,
+      et.good_reps,
+      et.bad_reps,
+      rt.rep_number,
+      rt.score
+    FROM exercise_telemetry et
+    JOIN workout_sessions ws ON et.session_id = ws.id
+    LEFT JOIN rep_telemetry rt ON rt.exercise_telemetry_id = et.id
+    WHERE ws.status = 'COMPLETED'
+      AND ws.created_at >= date('now', '-$days days')
+    ORDER BY et.exercise_name ASC, et.id ASC, rt.rep_number ASC
+  ''');
+
+    Map<String, Map<String, dynamic>> grouped = {};
+
+    for (final row in rows) {
+      final exerciseId = row['exercise_id'] as String;
+
+      grouped.putIfAbsent(exerciseId, () {
+        return {
+          'exercise_name': row['exercise_name'],
+          'good_reps': row['good_reps'],
+          'bad_reps': row['bad_reps'],
+          'rep_scores_array': <double>[],
+        };
+      });
+
+      final score = row['score'];
+      if (score != null) {
+        (grouped[exerciseId]!['rep_scores_array'] as List<double>)
+            .add((score as num).toDouble());
+      }
+    }
+
+    return grouped.values.toList();
   }
 
   Future<List<Map<String, dynamic>>> getTelemetryForSession(
