@@ -331,6 +331,7 @@ class _DashboardPageState extends State<DashboardPage> {
               const SizedBox(height: 8),
               ...timeline.take(5).map((s) => _buildTimelineNode(s)),
             ],
+
             const SizedBox(height: 40),
           ],
         ),

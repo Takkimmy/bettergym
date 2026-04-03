@@ -95,11 +95,11 @@ class ApiService {
 
         final response = await http.post(
           Uri.parse(
-              'https://bettergym.online/api/sync_session.php'), // UPDATE THIS URL
+              'https://bettergym.online/sync_session.php'), // UPDATE THIS URL
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(sessionPayload),
         );
-
+        debugPrint('SYNC PAYLOAD: ${jsonEncode(sessionPayload)}');
         if (response.statusCode == 200) {
           final result = jsonDecode(response.body);
           if (result['status'] == 'success') {
@@ -111,6 +111,7 @@ class ApiService {
           }
         } else {
           debugPrint('SYNC HTTP ERROR: ${response.statusCode}');
+          debugPrint('SYNC RESPONSE BODY: ${response.body}');
         }
       }
     } catch (e) {

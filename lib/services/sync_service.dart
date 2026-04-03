@@ -14,53 +14,62 @@ class SyncService {
       final int? userId = prefs.getInt('user_id');
 
       if (authToken == null || userId == null) {
-        debugPrint("SyncService: Aborting sync. No valid user credentials found.");
+        debugPrint(
+            "SyncService: Aborting sync. No valid user credentials found.");
         return;
       }
 
-      final unsyncedSessions = await LocalDBService.instance.getUnsyncedSessions();
-      
+      final unsyncedSessions =
+          await LocalDBService.instance.getUnsyncedSessions();
+
       if (unsyncedSessions.isEmpty) {
         debugPrint("SyncService: Local DB clean.");
         return;
       }
 
-      debugPrint("SyncService: Attempting to sync ${unsyncedSessions.length} sessions to ${ApiConstants.baseUrl}...");
+      debugPrint(
+          "SyncService: Attempting to sync ${unsyncedSessions.length} sessions to ${ApiConstants.baseUrl}...");
 
       for (var sessionData in unsyncedSessions) {
         final Map<String, dynamic> payload = {
-          "auth_token": authToken, 
-          "user_id": userId,      
+          "auth_token": authToken,
+          "user_id": userId,
           "session_id": sessionData['id'],
           "routine_id": sessionData['routine_id'],
           "status": sessionData['status'],
           "global_score": sessionData['global_score'],
           "duration_seconds": sessionData['duration_seconds'],
           // FIXED ALIGNMENT: Mapping strictly to what the new PHP script expects
-          "exercises": (sessionData['exercises'] as List).map((ex) => {
-            "id": ex['id'], 
-            "exercise_name": ex['exercise_name'],
-            "good_reps": ex['good_reps'],
-            "bad_reps": ex['bad_reps'],
-            "exercise_score": ex['exercise_score'],
-            "reps": ex['reps'] 
-          }).toList(),
+          "exercises": (sessionData['exercises'] as List)
+              .map((ex) => {
+                    "id": ex['id'],
+                    "exercise_name": ex['exercise_name'],
+                    "good_reps": ex['good_reps'],
+                    "bad_reps": ex['bad_reps'],
+                    "exercise_score": ex['exercise_score'],
+                    "reps": ex['reps']
+                  })
+              .toList(),
         };
 
-        final response = await http.post(
-          Uri.parse(ApiConstants.syncSessionEndpoint),
-          headers: {"Content-Type": "application/json"},
-          body: jsonEncode(payload),
-        ).timeout(const Duration(seconds: 10));
+        final response = await http
+            .post(
+              Uri.parse(ApiConstants.syncSessionEndpoint),
+              headers: {"Content-Type": "application/json"},
+              body: jsonEncode(payload),
+            )
+            .timeout(const Duration(seconds: 10));
 
         if (response.statusCode == 200) {
           final responseData = jsonDecode(response.body);
           if (responseData['status'] == 'success') {
             // FIXED TYPO: Removed 'As' to match LocalDBService declaration
             await LocalDBService.instance.markSessionSynced(sessionData['id']);
-            debugPrint("SyncService: Session ${sessionData['id']} synced to server.");
+            debugPrint(
+                "SyncService: Session ${sessionData['id']} synced to server.");
           } else {
-            debugPrint("SyncService: Server Rejected - ${responseData['message']}");
+            debugPrint(
+                "SyncService: Server Rejected - ${responseData['message']}");
           }
         } else {
           debugPrint("SyncService: HTTP Error ${response.statusCode}");
@@ -76,30 +85,34 @@ class SyncService {
   static Future<bool> pullHistoricalData(int userId, String token) async {
     try {
       debugPrint("SyncService: Pulling historical data for User $userId...");
-      
-      final response = await http.post(
-        Uri.parse(ApiConstants.fetchHistoryEndpoint),
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "user_id": userId,
-          "auth_token": token,
-        }),
-      ).timeout(const Duration(seconds: 15));
+
+      final response = await http
+          .post(
+            Uri.parse(ApiConstants.fetchHistoryEndpoint),
+            headers: {"Content-Type": "application/json"},
+            body: jsonEncode({
+              "user_id": userId,
+              "auth_token": token,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body);
         if (responseData['status'] == 'success') {
           List<dynamic> sessions = responseData['sessions'];
-          
+
           if (sessions.isNotEmpty) {
             await LocalDBService.instance.saveDownloadedHistory(sessions);
-            debugPrint("SyncService: Successfully rebuilt local DB with ${sessions.length} sessions.");
+            debugPrint(
+                "SyncService: Successfully rebuilt local DB with ${sessions.length} sessions.");
           } else {
-             debugPrint("SyncService: No historical data found on server.");
+            debugPrint("SyncService: No historical data found on server.");
           }
           return true;
         } else {
-          debugPrint("SyncService: Server rejected pull - ${responseData['message']}");
+          debugPrint(
+              "SyncService: Server rejected pull - ${responseData['message']}");
           return false;
         }
       } else {
