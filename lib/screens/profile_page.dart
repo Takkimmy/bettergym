@@ -6,25 +6,26 @@ import '../services/api_services.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
+
   @override
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
 class _ProfilePageState extends State<ProfilePage> {
   bool _isLoading = true;
-  bool _isSaving = false;
   String _username = "Loading...";
   
-  // Profile Form Controllers
+  // Profile Controllers (Read-only) [cite: 3936, 3937]
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _firstNameController = TextEditingController();
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _birthdayController = TextEditingController();
 
-  // BMI Calculator Controllers (Volatile)
+  // BMI Calculator [cite: 3938]
   final TextEditingController _heightController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
   String _bmiResult = "--";
+  String _bmiCategory = ""; // NEW: Category display
   Color _bmiColor = Colors.grey;
 
   @override
@@ -66,34 +67,6 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() => _isLoading = false);
   }
 
-  Future<void> _saveProfileData() async {
-    setState(() => _isSaving = true);
-    final prefs = await SharedPreferences.getInstance();
-    final userId = prefs.getInt('user_id');
-    final token = prefs.getString('auth_token');
-
-    if (userId != null && token != null) {
-      final response = await ApiService.updateProfile(
-        userId: userId,
-        token: token,
-        email: _emailController.text.trim(),
-        firstName: _firstNameController.text.trim(),
-        lastName: _lastNameController.text.trim(),
-        birthday: _birthdayController.text.trim(),
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(response['message'] ?? 'Action completed.'),
-          backgroundColor: response['status'] == 'success' ? mintGreen : neonRed,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
-    setState(() => _isSaving = false);
-  }
-
   void _calculateBMI() {
     final double? heightCm = double.tryParse(_heightController.text);
     final double? weightKg = double.tryParse(_weightController.text);
@@ -101,6 +74,7 @@ class _ProfilePageState extends State<ProfilePage> {
     if (heightCm == null || weightKg == null || heightCm <= 0 || weightKg <= 0) {
       setState(() {
         _bmiResult = "Invalid";
+        _bmiCategory = "";
         _bmiColor = neonRed;
       });
       return;
@@ -111,10 +85,26 @@ class _ProfilePageState extends State<ProfilePage> {
 
     setState(() {
       _bmiResult = bmi.toStringAsFixed(1);
-      if (bmi < 18.5) _bmiColor = Colors.blueAccent;
-      else if (bmi >= 18.5 && bmi < 24.9) _bmiColor = mintGreen;
-      else if (bmi >= 25 && bmi < 29.9) _bmiColor = Colors.orange;
-      else _bmiColor = neonRed;
+      // Logic for BMI categories 
+      if (bmi < 18.5) {
+        _bmiColor = Colors.blueAccent;
+        _bmiCategory = "UNDERWEIGHT";
+      } else if (bmi >= 18.5 && bmi < 24.9) {
+        _bmiColor = mintGreen;
+        _bmiCategory = "NORMAL";
+      } else if (bmi >= 25 && bmi < 29.9) {
+        _bmiColor = Colors.orange;
+        _bmiCategory = "OVERWEIGHT";
+      } else if (bmi >= 30 && bmi < 34.9) {
+        _bmiColor = neonRed;
+        _bmiCategory = "OBESITY CLASS I";
+      } else if (bmi >= 35 && bmi < 39.9) {
+        _bmiColor = neonRed;
+        _bmiCategory = "OBESITY CLASS II";
+      } else {
+        _bmiColor = neonRed;
+        _bmiCategory = "OBESITY CLASS III";
+      }
     });
   }
 
@@ -141,29 +131,35 @@ class _ProfilePageState extends State<ProfilePage> {
         );
       },
     );
-
     if (confirm == true && context.mounted) {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.clear(); // NUKE EVERYTHING. Zero ghost data left behind.
-
+      await prefs.clear();
       if (!context.mounted) return;
       Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginPage()), (route) => false);
     }
   }
 
-  Widget _buildTextField(String label, TextEditingController controller) {
+  // Refactored helper to support Read-only mode
+  Widget _buildTextField(String label, TextEditingController controller, {bool readOnly = false}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: TextField(
         controller: controller,
-        style: const TextStyle(color: Colors.white),
+        readOnly: readOnly, // Blocks user input
+        style: TextStyle(color: readOnly ? Colors.white70 : Colors.white),
         decoration: InputDecoration(
           labelText: label,
           labelStyle: const TextStyle(color: Colors.grey),
           filled: true,
           fillColor: Colors.black.withOpacity(0.2),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.transparent)),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: mintGreen)),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12), 
+            borderSide: BorderSide(color: readOnly ? Colors.white10 : Colors.transparent),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12), 
+            borderSide: BorderSide(color: readOnly ? Colors.white10 : mintGreen),
+          ),
         ),
       ),
     );
@@ -186,7 +182,7 @@ class _ProfilePageState extends State<ProfilePage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // IDENTITY HEADER
+          // IDENTITY HEADER [cite: 3964, 3965]
           Center(
             child: Column(
               children: [
@@ -198,7 +194,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           const SizedBox(height: 32),
 
-          // VOLATILE BMI CALCULATOR
+          // VOLATILE BMI CALCULATOR [cite: 3966]
           const Text("BMI CALCULATOR", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
           const SizedBox(height: 8),
           Container(
@@ -218,20 +214,28 @@ class _ProfilePageState extends State<ProfilePage> {
                   onPressed: _calculateBMI,
                   child: const Text("CALCULATE", style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text("Your BMI: ", style: TextStyle(color: Colors.grey, fontSize: 16)),
-                    Text(_bmiResult, style: TextStyle(color: _bmiColor, fontSize: 24, fontWeight: FontWeight.bold)),
-                  ],
-                )
+                if (_bmiResult != "--") ...[
+                  const SizedBox(height: 16),
+                  Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text("Your BMI: ", style: TextStyle(color: Colors.grey, fontSize: 16)),
+                          Text(_bmiResult, style: TextStyle(color: _bmiColor, fontSize: 24, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(_bmiCategory, style: TextStyle(color: _bmiColor, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
           const SizedBox(height: 32),
 
-          // EDIT DETAILS FORM
+          // READ-ONLY ACCOUNT DETAILS [cite: 3971]
           const Text("ACCOUNT DETAILS", style: TextStyle(color: mintGreen, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
           const SizedBox(height: 8),
           Container(
@@ -239,24 +243,17 @@ class _ProfilePageState extends State<ProfilePage> {
             decoration: BoxDecoration(color: darkSlate, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white10)),
             child: Column(
               children: [
-                _buildTextField("Email", _emailController),
-                _buildTextField("First Name", _firstNameController),
-                _buildTextField("Last Name", _lastNameController),
-                _buildTextField("Birthday (YYYY-MM-DD)", _birthdayController),
-                const SizedBox(height: 8),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: mintGreen, foregroundColor: navyBlue, minimumSize: const Size(double.infinity, 56)),
-                  onPressed: _isSaving ? null : _saveProfileData,
-                  child: _isSaving 
-                    ? const CircularProgressIndicator(color: navyBlue) 
-                    : const Text("SAVE CHANGES", style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2)),
-                ),
+                _buildTextField("Email", _emailController, readOnly: true),
+                _buildTextField("First Name", _firstNameController, readOnly: true),
+                _buildTextField("Last Name", _lastNameController, readOnly: true),
+                _buildTextField("Birthday (YYYY-MM-DD)", _birthdayController, readOnly: true),
+                // SAVE CHANGES button removed 
               ],
             ),
           ),
           const SizedBox(height: 32),
 
-          // LOGOUT
+          // LOGOUT [cite: 3976]
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(
               backgroundColor: neonRed.withOpacity(0.1), foregroundColor: neonRed,
