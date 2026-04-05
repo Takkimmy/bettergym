@@ -1,22 +1,22 @@
 import 'package:flutter/material.dart';
-
+import 'package:flutter_riverpod/flutter_riverpod.dart'; 
 import '../main.dart';
 import 'dashboard_page.dart';
 import 'notifications_page.dart';
 import 'profile_page.dart';
 import 'session_setup_page.dart';
 import 'settings_page.dart';
+import '../state/notifications_provider.dart'; 
 
-class MainLayout extends StatefulWidget {
+class MainLayout extends ConsumerStatefulWidget {
   const MainLayout({super.key});
 
   @override
-  State<MainLayout> createState() => _MainLayoutState();
+  ConsumerState<MainLayout> createState() => _MainLayoutState();
 }
 
-class _MainLayoutState extends State<MainLayout> {
+class _MainLayoutState extends ConsumerState<MainLayout> {
   int _currentIndex = 1;
-
   late final List<Widget> _pages;
 
   @override
@@ -38,6 +38,7 @@ class _MainLayoutState extends State<MainLayout> {
 
   @override
   Widget build(BuildContext context) {
+    final activeNotifications = ref.watch(notificationsProvider);
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -78,10 +79,9 @@ class _MainLayoutState extends State<MainLayout> {
               _buildTabItem(icon: Icons.dashboard, index: 1, label: 'Stats'),
               const SizedBox(width: 60),
               Badge(
-                isLabelVisible: true,
+                isLabelVisible: activeNotifications.isNotEmpty, 
                 backgroundColor: neonRed,
-                child: _buildTabItem(
-                    icon: Icons.notifications, index: 2, label: 'Alerts'),
+                child: _buildTabItem(icon: Icons.notifications, index: 2, label: 'Alerts'),
               ),
               _buildTabItem(icon: Icons.person, index: 3, label: 'Profile'),
             ],

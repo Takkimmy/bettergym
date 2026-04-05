@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import '../main.dart'; // Inherit global colors
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../main.dart'; 
+import '../state/notifications_provider.dart';
 
 class AppNotification {
   final String id;
@@ -15,21 +17,17 @@ class AppNotification {
   });
 }
 
-class NotificationsPage extends StatefulWidget {
+class NotificationsPage extends ConsumerStatefulWidget {
   const NotificationsPage({super.key});
 
   @override
-  State<NotificationsPage> createState() => _NotificationsPageState();
+  ConsumerState<NotificationsPage> createState() => _NotificationsPageState();
 }
 
-class _NotificationsPageState extends State<NotificationsPage> {
-  // START EMPTY (no placeholders)
-  List<AppNotification> _notifications = [];
+class _NotificationsPageState extends ConsumerState<NotificationsPage> {
 
   void _removeNotification(String id) {
-    setState(() {
-      _notifications.removeWhere((n) => n.id == id);
-    });
+    ref.read(notificationsProvider.notifier).removeNotification(id);
   }
 
   Widget _buildNotificationCard(AppNotification notification) {
@@ -78,32 +76,40 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final currentNotifications = ref.watch(notificationsProvider);
     return Scaffold(
+      backgroundColor: navyBlue, 
       appBar: AppBar(
-        title: const Text('Notifications'),
-        centerTitle: false,
+        backgroundColor: navyBlue, // Uniform AppBar color
+        elevation: 0, // Flat design to match main layout
+        centerTitle: true, // Centered alignment
+        title: const Text(
+          'NOTIFICATIONS',
+          style: TextStyle(
+            color: mintGreen,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 2.0,
+            fontSize: 16,
+          ),
+        ),
       ),
-      body: _notifications.isEmpty
+      body: currentNotifications.isEmpty
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.notifications_none,
-                      size: 64, color: Colors.grey.withOpacity(0.5)),
+                  Icon(Icons.notifications_none, size: 64, color: Colors.grey.withOpacity(0.5)),
                   const SizedBox(height: 16),
-                  const Text(
-                    'No notifications yet.',
-                    style: TextStyle(color: Colors.grey, fontSize: 16),
-                  ),
+                  const Text('No notifications yet.', style: TextStyle(color: Colors.grey, fontSize: 16)),
                 ],
               ),
             )
           : ListView.builder(
               padding: const EdgeInsets.all(16),
-              itemCount: _notifications.length,
+              itemCount: currentNotifications.length, // CHANGE HERE
               itemBuilder: (context, index) {
-                final notification = _notifications[index];
-
+                final notification = currentNotifications[index]; // CHANGE HERE
+                
                 return Dismissible(
                   key: Key(notification.id),
                   direction: DismissDirection.endToStart,

@@ -190,7 +190,51 @@ class ApiService {
       debugPrint("ApiService: Settings network failure - $e");
     }
   }
+  static Future<Map<String, dynamic>?> getProfile(int userId, String token) async {
+    try {
+      final baseUrl = await getBaseUrl();
+      final response = await http.post(
+        Uri.parse('$baseUrl/get_profile.php'),
+        body: {'user_id': userId.toString(), 'auth_token': token},
+      ).timeout(const Duration(seconds: 10));
 
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+    } catch (e) {
+      debugPrint("API ERROR (getProfile): $e");
+    }
+    return null;
+  }
+
+  static Future<Map<String, dynamic>> updateProfile({
+    required int userId,
+    required String token,
+    required String email,
+    required String firstName,
+    required String lastName,
+    required String birthday,
+  }) async {
+    try {
+      final baseUrl = await getBaseUrl();
+      final response = await http.post(
+        Uri.parse('$baseUrl/update_profile.php'),
+        body: {
+          'user_id': userId.toString(),
+          'auth_token': token,
+          'email': email,
+          'first_name': firstName,
+          'last_name': lastName,
+          'birthday': birthday,
+        },
+      ).timeout(const Duration(seconds: 10));
+
+      return jsonDecode(response.body);
+    } catch (e) {
+      return {'status': 'error', 'message': 'Network error: $e'};
+    }
+  }
+  
   // --------- For uploading exercise videos
   static Future<Map<String, dynamic>> uploadExerciseVideo({
     required int userId,
