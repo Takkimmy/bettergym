@@ -264,18 +264,6 @@ class _LoginPageState extends State<LoginPage> {
                         ])),
                   ),
 
-                  // --- DEV BYPASS ---
-                  const SizedBox(height: 16),
-                  TextButton(
-                    onPressed: () => Navigator.pushReplacement(context,
-                        MaterialPageRoute(builder: (_) => const MainLayout())),
-                    child: const Text('SKIP LOGIN (DEV ONLY)',
-                        style: TextStyle(
-                            color: Colors.grey,
-                            letterSpacing: 1.5,
-                            fontSize: 12)),
-                  ),
-
                   if (_message.isNotEmpty) ...[
                     const SizedBox(height: 24),
                     Container(

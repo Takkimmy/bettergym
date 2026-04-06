@@ -252,57 +252,63 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
   }
 
   void _showAddEditDialog({WorkoutSet? existingSet, int? index}) {
-    String selectedName = existingSet?.name ?? _availableExercises.first;
-    bool isDuration = selectedName.toLowerCase() == 'plank';
+  String selectedName = existingSet?.name ?? _availableExercises.first;
+  bool isDuration = selectedName.toLowerCase() == 'plank';
 
-    int currentTarget = existingSet?.target ?? (isDuration ? 60 : 10);
+  // State preservation: Use the existing target or the default
+  int currentTarget = existingSet?.target ?? (isDuration ? 60 : 10);
+  
+  // Track if the user has manually touched the values
+  bool hasUserModifiedValues = false;
 
-    int tempMin = isDuration ? currentTarget ~/ 60 : 0;
-    int tempSec = isDuration ? currentTarget % 60 : 0;
+  int tempMin = isDuration ? currentTarget ~/ 60 : 0;
+  int tempSec = isDuration ? currentTarget % 60 : 0;
+  int tempH = !isDuration ? currentTarget ~/ 100 : 0;
+  int tempT = !isDuration ? (currentTarget % 100) ~/ 10 : 0;
+  int tempO = !isDuration ? currentTarget % 10 : 0;
 
-    int tempH = !isDuration ? currentTarget ~/ 100 : 0;
-    int tempT = !isDuration ? (currentTarget % 100) ~/ 10 : 0;
-    int tempO = !isDuration ? currentTarget % 10 : 0;
+  showDialog(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(builder: (context, setDialogState) {
+        return AlertDialog(
+          backgroundColor: darkSlate,
+          title: Text(existingSet == null ? 'ADD EXERCISE' : 'EDIT EXERCISE',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              DropdownButtonFormField<String>(
+                value: selectedName,
+                dropdownColor: navyBlue,
+                autofocus: true, // TRIGGER: This ensures the dropdown is ready for interaction immediately
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+                items: _availableExercises
+                    .map((name) => DropdownMenuItem(value: name, child: Text(name)))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) {
+                    setDialogState(() {
+                      selectedName = val;
+                      bool wasDuration = isDuration;
+                      isDuration = selectedName.toLowerCase() == 'plank';
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(builder: (context, setDialogState) {
-          return AlertDialog(
-            backgroundColor: darkSlate,
-            title: Text(existingSet == null ? 'ADD EXERCISE' : 'EDIT EXERCISE',
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold)),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  value: selectedName,
-                  dropdownColor: navyBlue,
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                  items: _availableExercises
-                      .map((name) =>
-                          DropdownMenuItem(value: name, child: Text(name)))
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) {
-                      setDialogState(() {
-                        selectedName = val;
-                        isDuration = selectedName.toLowerCase() == 'plank';
-
-                        if (isDuration) {
-                          tempMin = 1;
-                          tempSec = 0;
-                        } else {
-                          tempH = 0;
-                          tempT = 1;
-                          tempO = 0;
+                      // REFACTOR: Logic to prevent resetting user data
+                      if (wasDuration != isDuration) {
+                        // Only switch defaults if the user hasn't modified values yet
+                        if (!hasUserModifiedValues) {
+                          if (isDuration) {
+                            tempMin = 1; tempSec = 0;
+                          } else {
+                            tempH = 0; tempT = 1; tempO = 0;
+                          }
                         }
-                      });
-                    }
-                  },
-                ),
-                const SizedBox(height: 24),
+                      }
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 24),
 
                 // NEW: Dynamic headers. Only shown for duration.
                 if (isDuration) ...[
