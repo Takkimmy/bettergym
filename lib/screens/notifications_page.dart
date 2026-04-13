@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../main.dart'; 
+import '../main.dart';
 import '../state/notifications_provider.dart';
 
 class AppNotification {
@@ -25,6 +25,17 @@ class NotificationsPage extends ConsumerStatefulWidget {
 }
 
 class _NotificationsPageState extends ConsumerState<NotificationsPage> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      ref.read(notificationsProvider.notifier).loadNotifications();
+    });
+  }
+
+  Future<void> _refreshNotifications() async {
+    await ref.read(notificationsProvider.notifier).loadNotifications();
+  }
 
   void _removeNotification(String id) {
     ref.read(notificationsProvider.notifier).removeNotification(id);
@@ -77,12 +88,13 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
   @override
   Widget build(BuildContext context) {
     final currentNotifications = ref.watch(notificationsProvider);
+
     return Scaffold(
-      backgroundColor: navyBlue, 
+      backgroundColor: navyBlue,
       appBar: AppBar(
-        backgroundColor: navyBlue, // Uniform AppBar color
-        elevation: 0, // Flat design to match main layout
-        centerTitle: true, // Centered alignment
+        backgroundColor: navyBlue,
+        elevation: 0,
+        centerTitle: true,
         title: const Text(
           'NOTIFICATIONS',
           style: TextStyle(
@@ -93,41 +105,58 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
           ),
         ),
       ),
-      body: currentNotifications.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+      body: RefreshIndicator(
+        onRefresh: _refreshNotifications,
+        child: currentNotifications.isEmpty
+            ? ListView(
                 children: [
-                  Icon(Icons.notifications_none, size: 64, color: Colors.grey.withOpacity(0.5)),
-                  const SizedBox(height: 16),
-                  const Text('No notifications yet.', style: TextStyle(color: Colors.grey, fontSize: 16)),
-                ],
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: currentNotifications.length, // CHANGE HERE
-              itemBuilder: (context, index) {
-                final notification = currentNotifications[index]; // CHANGE HERE
-                
-                return Dismissible(
-                  key: Key(notification.id),
-                  direction: DismissDirection.endToStart,
-                  onDismissed: (_) => _removeNotification(notification.id),
-                  background: Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
+                  SizedBox(
+                    height: MediaQuery.of(context).size.height * 0.75,
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.notifications_none,
+                            size: 64,
+                            color: Colors.grey.withOpacity(0.5),
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'No notifications yet.',
+                            style: TextStyle(color: Colors.grey, fontSize: 16),
+                          ),
+                        ],
+                      ),
                     ),
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 20),
-                    child: const Icon(Icons.delete, color: Colors.red),
                   ),
-                  child: _buildNotificationCard(notification),
-                );
-              },
-            ),
+                ],
+              )
+            : ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: currentNotifications.length,
+                itemBuilder: (context, index) {
+                  final notification = currentNotifications[index];
+
+                  return Dismissible(
+                    key: Key(notification.id),
+                    direction: DismissDirection.endToStart,
+                    onDismissed: (_) => _removeNotification(notification.id),
+                    background: Container(
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      child: const Icon(Icons.delete, color: Colors.red),
+                    ),
+                    child: _buildNotificationCard(notification),
+                  );
+                },
+              ),
+      ),
     );
   }
 }

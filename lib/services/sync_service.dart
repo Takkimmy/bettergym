@@ -28,7 +28,8 @@ class SyncService {
       }
 
       debugPrint(
-          "SyncService: Attempting to sync ${unsyncedSessions.length} sessions to ${ApiConstants.baseUrl}...");
+        "SyncService: Attempting to sync ${unsyncedSessions.length} sessions to ${ApiConstants.baseUrl}...",
+      );
 
       for (var sessionData in unsyncedSessions) {
         final Map<String, dynamic> payload = {
@@ -39,7 +40,6 @@ class SyncService {
           "status": sessionData['status'],
           "global_score": sessionData['global_score'],
           "duration_seconds": sessionData['duration_seconds'],
-          // FIXED ALIGNMENT: Mapping strictly to what the new PHP script expects
           "exercises": (sessionData['exercises'] as List)
               .map((ex) => {
                     "id": ex['id'],
@@ -63,7 +63,6 @@ class SyncService {
         if (response.statusCode == 200) {
           final responseData = jsonDecode(response.body);
           if (responseData['status'] == 'success') {
-            // FIXED TYPO: Removed 'As' to match LocalDBService declaration
             await LocalDBService.instance.markSessionSynced(sessionData['id']);
             debugPrint(
                 "SyncService: Session ${sessionData['id']} synced to server.");
@@ -106,13 +105,20 @@ class SyncService {
           final List<dynamic> sessions = responseData['sessions'] ?? [];
           final List<dynamic> processedVideos =
               responseData['processed_videos'] ?? [];
+          final List<dynamic> notifications =
+              responseData['notifications'] ?? [];
 
-          await LocalDBService.instance
-              .saveDownloadedHistory(sessions, processedVideos);
+          await LocalDBService.instance.saveDownloadedHistory(
+            sessions,
+            processedVideos,
+            notifications,
+          );
 
           debugPrint(
             "SyncService: Successfully rebuilt local DB with "
-            "${sessions.length} sessions and ${processedVideos.length} processed videos.",
+            "${sessions.length} sessions, "
+            "${processedVideos.length} processed videos, and "
+            "${notifications.length} notifications.",
           );
 
           return true;

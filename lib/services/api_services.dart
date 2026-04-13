@@ -190,7 +190,43 @@ class ApiService {
       debugPrint("ApiService: Settings network failure - $e");
     }
   }
-  static Future<Map<String, dynamic>?> getProfile(int userId, String token) async {
+
+  static Future<bool> markNotificationAsRead(int notificationId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      final userId = prefs.getInt('user_id');
+
+      if (token == null || userId == null) return false;
+
+      final baseUrl = await getBaseUrl();
+
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/mark_notification_read.php'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'auth_token': token,
+              'user_id': userId,
+              'notification_id': notificationId,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        return data['status'] == 'success';
+      }
+
+      return false;
+    } catch (e) {
+      debugPrint('MARK NOTIFICATION READ ERROR: $e');
+      return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> getProfile(
+      int userId, String token) async {
     try {
       final baseUrl = await getBaseUrl();
       final response = await http.post(
@@ -234,7 +270,7 @@ class ApiService {
       return {'status': 'error', 'message': 'Network error: $e'};
     }
   }
-  
+
   // --------- For uploading exercise videos
   static Future<Map<String, dynamic>> uploadExerciseVideo({
     required int userId,

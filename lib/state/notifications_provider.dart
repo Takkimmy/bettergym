@@ -1,25 +1,68 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../screens/notifications_page.dart'; // Gives us access to AppNotification
+import '../screens/notifications_page.dart';
+import '../services/local_db_service.dart';
+import '../services/api_services.dart';
 
-// This controls the data globally.
 class NotificationsNotifier extends Notifier<List<AppNotification>> {
   @override
   List<AppNotification> build() {
-    return []; // Starts empty. No fake red dots.
+    return [];
   }
 
-  void removeNotification(String id) {
-    // Rebuilds the list without the deleted item
-    state = state.where((n) => n.id != id).toList();
+  Future<void> loadNotifications() async {
+    final rows = await LocalDBService.instance.getNotifications();
+
+    state = rows.map((row) {
+      return AppNotification(
+        id: row['id'].toString(),
+        title: row['title']?.toString() ?? '',
+        message: row['message']?.toString() ?? '',
+        timeAgo: _formatTimeAgo(row['created_at']?.toString()),
+      );
+    }).toList();
   }
 
-  void addNotification(AppNotification n) {
-    // Adds a new notification and updates the app
-    state = [...state, n];
+  Future<void> removeNotification(String id) async {
+    final intId = int.tryParse(id);
+    if (intId == null) return;
+
+    final success = await ApiService.markNotificationAsRead(intId);
+
+    if (success) {
+      await LocalDBService.instance.markNotificationAsRead(intId);
+      state = state.where((n) => n.id != id).toList();
+    }
+  }
+
+  Future<void> addNotification(AppNotification n) async {
+    state = [n, ...state];
+  }
+
+  String _formatTimeAgo(String? createdAt) {
+    if (createdAt == null || createdAt.isEmpty) return '';
+
+    try {
+      final dateTime = DateTime.parse(createdAt).toLocal();
+      final difference = DateTime.now().difference(dateTime);
+
+      if (difference.inSeconds < 60) {
+        return 'Just now';
+      } else if (difference.inMinutes < 60) {
+        return '${difference.inMinutes} min ago';
+      } else if (difference.inHours < 24) {
+        return '${difference.inHours} hr ago';
+      } else if (difference.inDays == 1) {
+        return '1 day ago';
+      } else {
+        return '${difference.inDays} days ago';
+      }
+    } catch (_) {
+      return createdAt;
+    }
   }
 }
 
-// The wire that connects your UI to the data
-final notificationsProvider = NotifierProvider<NotificationsNotifier, List<AppNotification>>(() {
-  return NotificationsNotifier();
-});
+final notificationsProvider =
+    NotifierProvider<NotificationsNotifier, List<AppNotification>>(
+  NotificationsNotifier.new,
+);

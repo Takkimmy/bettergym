@@ -21,9 +21,8 @@ class LocalDBService {
 
     return await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, version) async {
-        // Create workout_sessions too if not yet in your DB init
         await db.execute('''
           CREATE TABLE workout_sessions (
             id TEXT PRIMARY KEY,
@@ -76,6 +75,18 @@ class LocalDBService {
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
           )
         ''');
+
+        await db.execute('''
+          CREATE TABLE notifications (
+            id INTEGER PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            session_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -93,18 +104,19 @@ class LocalDBService {
             )
           ''');
         }
+
         if (oldVersion < 3) {
           await db.execute('''
-              ALTER TABLE workout_sessions 
-              ADD COLUMN session_type TEXT NOT NULL DEFAULT 'realtime'
-            ''');
+            ALTER TABLE workout_sessions 
+            ADD COLUMN session_type TEXT NOT NULL DEFAULT 'realtime'
+          ''');
 
-          // optional: set all old to AI
           await db.execute('''
-              UPDATE workout_sessions 
-              SET session_type = 'ai'
-            ''');
+            UPDATE workout_sessions 
+            SET session_type = 'ai'
+          ''');
         }
+
         if (oldVersion < 4) {
           await db.execute(
               'ALTER TABLE processed_videos ADD COLUMN file_path TEXT');
@@ -112,6 +124,20 @@ class LocalDBService {
               'ALTER TABLE processed_videos ADD COLUMN file_name TEXT');
           await db
               .execute('ALTER TABLE processed_videos ADD COLUMN score INTEGER');
+        }
+
+        if (oldVersion < 5) {
+          await db.execute('''
+            CREATE TABLE notifications (
+              id INTEGER PRIMARY KEY,
+              user_id INTEGER NOT NULL,
+              session_id TEXT NOT NULL,
+              title TEXT NOT NULL,
+              message TEXT NOT NULL,
+              is_read INTEGER NOT NULL DEFAULT 0,
+              created_at TEXT NOT NULL
+            )
+          ''');
         }
       },
     );
@@ -257,14 +283,15 @@ class LocalDBService {
   Future<void> saveDownloadedHistory(
     List<dynamic> serverSessions,
     List<dynamic> processedVideos,
+    List<dynamic> notifications,
   ) async {
     final db = await database;
 
     await db.transaction((txn) async {
-      // Optional but recommended: clear old pulled data first
       await txn.delete('rep_telemetry');
       await txn.delete('exercise_telemetry');
       await txn.delete('processed_videos');
+      await txn.delete('notifications');
       await txn.delete('workout_sessions');
 
       for (var session in serverSessions) {
@@ -340,7 +367,54 @@ class LocalDBService {
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
+
+      for (var notif in notifications) {
+        final Map<String, dynamic> notifData = {
+          'id': notif['id'],
+          'user_id': notif['user_id'],
+          'session_id': notif['session_id'],
+          'title': notif['title'],
+          'message': notif['message'],
+          'is_read': notif['is_read'] ?? 0,
+          'created_at': notif['created_at'],
+        };
+
+        await txn.insert(
+          'notifications',
+          notifData,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
     });
+  }
+
+  Future<List<Map<String, dynamic>>> getNotifications() async {
+    final db = await database;
+    return await db.query(
+      'notifications',
+      where: 'is_read = ?',
+      whereArgs: [0],
+      orderBy: 'created_at DESC',
+    );
+  }
+
+  Future<void> deleteNotification(int id) async {
+    final db = await database;
+    await db.delete(
+      'notifications',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> markNotificationAsRead(int id) async {
+    final db = await database;
+    await db.update(
+      'notifications',
+      {'is_read': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 
   Future<Map<String, dynamic>> getDashboardAggregates() async {
@@ -392,20 +466,20 @@ class LocalDBService {
     ''');
 
     final timelineRealtime = await db.rawQuery('''
-  SELECT *, date(created_at) as session_date
-  FROM workout_sessions
-  WHERE status = 'COMPLETED'
-    AND session_type = 'realtime'
-  ORDER BY created_at DESC
-''');
+      SELECT *, date(created_at) as session_date
+      FROM workout_sessions
+      WHERE status = 'COMPLETED'
+        AND session_type = 'realtime'
+      ORDER BY created_at DESC
+    ''');
 
     final timelineAi = await db.rawQuery('''
-  SELECT *, date(created_at) as session_date
-  FROM workout_sessions
-  WHERE status = 'COMPLETED'
-    AND session_type = 'ai'
-  ORDER BY created_at DESC
-''');
+      SELECT *, date(created_at) as session_date
+      FROM workout_sessions
+      WHERE status = 'COMPLETED'
+        AND session_type = 'ai'
+      ORDER BY created_at DESC
+    ''');
 
     return {
       'bento': bentoResult.first,
@@ -471,10 +545,6 @@ class LocalDBService {
       whereArgs: [sessionId],
     );
   }
-
-  // =========================
-  // processed_videos helpers
-  // =========================
 
   Future<int> insertProcessedVideo({
     required int userId,
