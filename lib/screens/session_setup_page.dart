@@ -4,6 +4,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 import 'pose_camera_page.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:http/http.dart' as http;
+import 'dart:io';
 
 import 'pose_camera_ai_page.dart';
 
@@ -20,13 +22,41 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
   Map<String, List<WorkoutSet>> _templates = {};
   bool _isLoading = true;
 
+  Future<bool> _canStartAiSession() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      // replace with your real endpoint
+      final uri = Uri.parse('https://bettergym.online/api/ping.php');
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+          if (token != null && token.isNotEmpty)
+            'Authorization': 'Bearer $token',
+        },
+      ).timeout(const Duration(seconds: 5));
+
+      return response.statusCode == 200;
+    } on SocketException {
+      return false;
+    } on HttpException {
+      return false;
+    } on FormatException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   final List<String> _availableExercises = [
     'Push Up',
     'Bench Dip',
     'Bicep Curl',
     'Squat',
-    'Lunges',
-    'Plank'
+    'Lunges'
   ];
 
   @override
@@ -252,63 +282,69 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
   }
 
   void _showAddEditDialog({WorkoutSet? existingSet, int? index}) {
-  String selectedName = existingSet?.name ?? _availableExercises.first;
-  bool isDuration = selectedName.toLowerCase() == 'plank';
+    String selectedName = existingSet?.name ?? _availableExercises.first;
+    bool isDuration = selectedName.toLowerCase() == 'plank';
 
-  // State preservation: Use the existing target or the default
-  int currentTarget = existingSet?.target ?? (isDuration ? 60 : 10);
-  
-  // Track if the user has manually touched the values
-  bool hasUserModifiedValues = false;
+    // State preservation: Use the existing target or the default
+    int currentTarget = existingSet?.target ?? (isDuration ? 60 : 10);
 
-  int tempMin = isDuration ? currentTarget ~/ 60 : 0;
-  int tempSec = isDuration ? currentTarget % 60 : 0;
-  int tempH = !isDuration ? currentTarget ~/ 100 : 0;
-  int tempT = !isDuration ? (currentTarget % 100) ~/ 10 : 0;
-  int tempO = !isDuration ? currentTarget % 10 : 0;
+    // Track if the user has manually touched the values
+    bool hasUserModifiedValues = false;
 
-  showDialog(
-    context: context,
-    builder: (context) {
-      return StatefulBuilder(builder: (context, setDialogState) {
-        return AlertDialog(
-          backgroundColor: darkSlate,
-          title: Text(existingSet == null ? 'ADD EXERCISE' : 'EDIT EXERCISE',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                value: selectedName,
-                dropdownColor: navyBlue,
-                autofocus: true, // TRIGGER: This ensures the dropdown is ready for interaction immediately
-                style: const TextStyle(color: Colors.white, fontSize: 16),
-                items: _availableExercises
-                    .map((name) => DropdownMenuItem(value: name, child: Text(name)))
-                    .toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    setDialogState(() {
-                      selectedName = val;
-                      bool wasDuration = isDuration;
-                      isDuration = selectedName.toLowerCase() == 'plank';
+    int tempMin = isDuration ? currentTarget ~/ 60 : 0;
+    int tempSec = isDuration ? currentTarget % 60 : 0;
+    int tempH = !isDuration ? currentTarget ~/ 100 : 0;
+    int tempT = !isDuration ? (currentTarget % 100) ~/ 10 : 0;
+    int tempO = !isDuration ? currentTarget % 10 : 0;
 
-                      // REFACTOR: Logic to prevent resetting user data
-                      if (wasDuration != isDuration) {
-                        // Only switch defaults if the user hasn't modified values yet
-                        if (!hasUserModifiedValues) {
-                          if (isDuration) {
-                            tempMin = 1; tempSec = 0;
-                          } else {
-                            tempH = 0; tempT = 1; tempO = 0;
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: darkSlate,
+            title: Text(existingSet == null ? 'ADD EXERCISE' : 'EDIT EXERCISE',
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.bold)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: selectedName,
+                  dropdownColor: navyBlue,
+                  autofocus:
+                      true, // TRIGGER: This ensures the dropdown is ready for interaction immediately
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  items: _availableExercises
+                      .map((name) =>
+                          DropdownMenuItem(value: name, child: Text(name)))
+                      .toList(),
+                  onChanged: (val) {
+                    if (val != null) {
+                      setDialogState(() {
+                        selectedName = val;
+                        bool wasDuration = isDuration;
+                        isDuration = selectedName.toLowerCase() == 'plank';
+
+                        // REFACTOR: Logic to prevent resetting user data
+                        if (wasDuration != isDuration) {
+                          // Only switch defaults if the user hasn't modified values yet
+                          if (!hasUserModifiedValues) {
+                            if (isDuration) {
+                              tempMin = 1;
+                              tempSec = 0;
+                            } else {
+                              tempH = 0;
+                              tempT = 1;
+                              tempO = 0;
+                            }
                           }
                         }
-                      }
-                    });
-                  }
-                },
-              ),
-              const SizedBox(height: 24),
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 24),
 
                 // NEW: Dynamic headers. Only shown for duration.
                 if (isDuration) ...[
@@ -726,7 +762,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
         foregroundColor: _routine.isEmpty ? Colors.grey.shade500 : navyBlue,
         onPressed: _routine.isEmpty
             ? null
-            : () {
+            : () async {
                 if (_sessionMode == 'Real Time') {
                   Navigator.push(
                     context,
@@ -735,6 +771,35 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
                     ),
                   );
                 } else {
+                  // AI mode: require server connection first
+                  showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (_) => const Center(
+                      child: CircularProgressIndicator(color: mintGreen),
+                    ),
+                  );
+
+                  final canStart = await _canStartAiSession();
+
+                  if (context.mounted) Navigator.pop(context);
+
+                  if (!canStart) {
+                    if (!context.mounted) return;
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Cannot start AI session. Server is unavailable.',
+                        ),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                    return;
+                  }
+
+                  if (!context.mounted) return;
+
                   Navigator.push(
                     context,
                     MaterialPageRoute(

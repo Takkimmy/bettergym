@@ -10,7 +10,7 @@ import 'dart:io';
 class ApiService {
   // --- ENVIRONMENT ROUTING ---
   static const String liveBaseUrl = 'https://bettergym.online';
-  static const String localBaseUrl = 'http://192.168.100.14';
+  static const String localBaseUrl = 'http://192.168.1.5';
 
   static String? _activeBaseUrl;
 
