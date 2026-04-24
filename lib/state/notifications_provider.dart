@@ -60,6 +60,10 @@ class NotificationsNotifier extends Notifier<List<AppNotification>> {
       return createdAt;
     }
   }
+
+  void clearAll() {
+    state = [];
+  }
 }
 
 final notificationsProvider =

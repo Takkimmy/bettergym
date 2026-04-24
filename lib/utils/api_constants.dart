@@ -15,4 +15,6 @@ class ApiConstants {
 
   // THE NEW ENDPOINT
   static const String updateSettingsEndpoint = "$baseUrl/update_settings.php";
+
+  static const String pingEndpoint = "$baseUrl/ping.php";
 }

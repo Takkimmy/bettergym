@@ -36,7 +36,6 @@ class SyncService {
           "auth_token": authToken,
           "user_id": userId,
           "session_id": sessionData['id'],
-          "routine_id": sessionData['routine_id'],
           "status": sessionData['status'],
           "global_score": sessionData['global_score'],
           "duration_seconds": sessionData['duration_seconds'],

@@ -6,6 +6,7 @@ import 'pose_camera_page.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 import 'dart:io';
+import '../utils/api_constants.dart';
 
 import 'pose_camera_ai_page.dart';
 
@@ -28,7 +29,7 @@ class _SessionSetupPageState extends State<SessionSetupPage> {
       final token = prefs.getString('auth_token');
 
       // replace with your real endpoint
-      final uri = Uri.parse('https://bettergym.online/api/ping.php');
+      final uri = Uri.parse(ApiConstants.pingEndpoint);
 
       final response = await http.get(
         uri,

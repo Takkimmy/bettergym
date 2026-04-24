@@ -21,13 +21,13 @@ class LocalDBService {
 
     return await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE workout_sessions (
             id TEXT PRIMARY KEY,
             user_id INTEGER NOT NULL,
-            routine_id TEXT,
+  
             status TEXT NOT NULL,
             global_score INTEGER,
             duration_seconds INTEGER,
@@ -298,7 +298,6 @@ class LocalDBService {
         final Map<String, dynamic> sessionData = {
           'id': session['id'],
           'user_id': session['user_id'],
-          'routine_id': session['routine_id'],
           'status': session['status'],
           'global_score': session['global_score'],
           'duration_seconds': session['duration_seconds'],
