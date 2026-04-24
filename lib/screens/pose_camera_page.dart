@@ -151,7 +151,6 @@ class _PoseCameraPageState extends ConsumerState<PoseCameraPage>
       await LocalDBService.instance.createSessionRecord({
         'id': _currentSessionId,
         'user_id': prefs.getInt('user_id') ?? 1,
-        'routine_id': null,
         'status': 'IN_PROGRESS',
         'global_score': 0,
         'duration_seconds': 0,
